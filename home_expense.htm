@@ -245,6 +245,7 @@ async function logClaimSubmitFailure(source,claim,error,context){
     submitted_by:claim&&claim.submittedBy?claim.submittedBy:'',
     category:claim&&claim.category?claim.category:'',
     unit:claim&&claim.unit?claim.unit:'',
+    description:claim&&claim.desc?claim.desc:'',
     amount:claim&&claim.amount!==undefined?claim.amount:null,
     date:claim&&claim.date?claim.date:'',
     expense_month:claim&&claim.expMonth?claim.expMonth:'',
@@ -1345,6 +1346,28 @@ function duplicateClaimMessage(ai){
   if(!dup)return'';
   return 'Duplicate blocked: '+dup.claim_id+'. '+duplicateReasonLabel(dup.duplicate_reason)+' Save as Draft if you need to keep this receipt first.';
 }
+function activeClaimDbDuplicate(emp,date,amount,desc){
+  var amt=Number(amount||0).toFixed(2);
+  var dt=String(date||'').slice(0,10);
+  var ds=String(desc||'');
+  return claims.filter(function(c){
+    return c.status!=='Rejected'&&c.status!=='Draft'
+      && String(c.emp||'')===String(emp||'')
+      && String(c.date||'').slice(0,10)===dt
+      && Number(c.amount||0).toFixed(2)===amt
+      && String(c.desc||'')===ds;
+  })[0]||null;
+}
+function dbDuplicateClaimMessage(dup){
+  return dup
+    ?'Duplicate blocked: '+dup.id+' already has the same employee, date, amount and description.'
+    :'Duplicate blocked: this expense already exists with the same employee, date, amount and description.';
+}
+function claimInsertFailureMessage(claim,error,prefix){
+  var dup=activeClaimDbDuplicate(claim.emp,claim.date,claim.amount,claim.desc);
+  if(dup||String(error&&error.message||'').indexOf('claims_dup_check')>=0)return dbDuplicateClaimMessage(dup);
+  return prefix+': '+claimSubmitFailureText(error);
+}
 
 function goToManualEntry(){
   newClaimStep='manual';aiResult=null;aiError='';render();
@@ -1558,6 +1581,10 @@ async function submitNewClaim(asDraft){
       if(refDups.length>0)toast('Heads up: This receipt ref '+rfN+' already appears in '+refDups[0].id+'.');
     }
   }
+  if(!asDraft){
+    var exactDup=activeClaimDbDuplicate(myName(),dtv||new Date().toISOString().slice(0,10),av||0,dv||'(untitled)');
+    if(exactDup){toast(dbDuplicateClaimMessage(exactDup));return;}
+  }
   claimSubmitBusy=true;render();
   try{
     var cid=await getNextClaimId('HE');
@@ -1571,7 +1598,7 @@ async function submitNewClaim(asDraft){
     }
     var insertResult=await dbInsertClaim(nc);
     claimSubmitBusy=false;
-    if(!insertResult.ok){await logClaimSubmitFailure('submitNewClaim.dbInsert',nc,insertResult.error,{as_draft:asDraft});toast('Failed to save claim: '+claimSubmitFailureText(insertResult.error));render();return;}
+    if(!insertResult.ok){await logClaimSubmitFailure('submitNewClaim.dbInsert',nc,insertResult.error,{as_draft:asDraft});toast(claimInsertFailureMessage(nc,insertResult.error,'Failed to save claim'));render();return;}
     addClaimLocal(nc);
     hydrateClaimAttachmentUrls([nc]).then(function(){if(S==='empList'||S==='claimDetail')render();});
     toast(asDraft?'Draft saved':'Claim '+cid+' submitted!');
@@ -1604,6 +1631,8 @@ async function submitMgrClaim(){
     var dups=claims.filter(function(c){return c.emp===dupEmp&&c.amount===av&&c.date.slice(0,7)===dupMonth&&c.status!=='Rejected'&&c.status!=='Draft';});
     if(dups.length>0)toast('Heads up: A similar claim (RM '+av.toFixed(2)+') already exists for '+(dupEmp||'company')+' in '+dupMonth+'.');
   }
+  var exactDup=activeClaimDbDuplicate(isCompany?'':mgrFormEmp,dtv,av,dv);
+  if(exactDup){toast(dbDuplicateClaimMessage(exactDup));return;}
   mgrSubmitBusy=true;render();
   try{
     var cid=await getNextClaimId(isCompany?'CO':'MGR');
@@ -1617,7 +1646,7 @@ async function submitMgrClaim(){
     }
     var insertResult=await dbInsertClaim(nc);
     mgrSubmitBusy=false;
-    if(!insertResult.ok){await logClaimSubmitFailure('submitMgrClaim.dbInsert',nc,insertResult.error,{is_company:isCompany});toast('Failed to save expense: '+claimSubmitFailureText(insertResult.error));render();return;}
+    if(!insertResult.ok){await logClaimSubmitFailure('submitMgrClaim.dbInsert',nc,insertResult.error,{is_company:isCompany});toast(claimInsertFailureMessage(nc,insertResult.error,'Failed to save expense'));render();return;}
     addClaimLocal(nc);
     hydrateClaimAttachmentUrls([nc]).then(function(){if(S==='adminDash'||S==='adminList')render();});
     toast(isCompany?'Recorded as Company-Paid':'Auto-approved for '+mgrFormEmp);
