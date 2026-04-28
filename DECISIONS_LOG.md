@@ -1,5 +1,11 @@
 # Decisions Log
 
+## 2026-04-28: Promote Expense Submit Diagnostics To Test And Live
+Decision: Keep test and live at the same schema/app level for claim submission by applying the attachment refs, invoice automation, and error-log migrations to both environments, then deploying paged admin logs and detailed submit-failure logging to both Pages apps.
+
+Reason:
+The same AR C3706 scenario worked in test but failed in live, pointing to environment drift rather than form logic. The frontend now records the real Supabase insert/upload error in `error_logs`, and admins can page through logs instead of being limited to the latest 100 rows.
+
 ## 2026-04-28: Report Sales And Profit Formula
 Decision: Assign report sales by reservation checkout date (`end_date`) and calculate Homestay Profit as `Sales - Subtotal Expenses`, where Subtotal Expenses includes shared expenses charged to Both plus calculated Cleaning fee.
 

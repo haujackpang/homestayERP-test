@@ -17,6 +17,13 @@ Current focus:
 5. AI scan off: disabled in UI and blocked at Edge Functions unless `AI_RECEIPT_SCAN_ENABLED=true` is set later in Supabase secrets.
 6. Submit speed: successful submit inserts into local state immediately, then refreshes claims in the background.
 
+2026-04-28 update (implemented in test and live):
+1. Expense submit diagnostics now preserve Supabase insert errors and write submit/upload failures into `error_logs`.
+2. Admin `System Logs` now loads `error_logs` in 50-row pages with Back/Next controls.
+3. `supabase-add-claim-attachment-refs.sql`, `supabase-invoice-automation.sql`, and `supabase-error-logs.sql` were applied to both test and live.
+4. Test Pages deployment `25061045338` and live Pages deployment `25061116883` completed successfully.
+5. Public API verification confirmed both environments expose the current claim attachment/OCR columns and accept client-side error-log inserts.
+
 Environment guardrails that still apply:
 1. Test is `homestayERP-test` / `afcifzghlkxvnpulahub`, live is `homestay-expenses` / `skwogboredsczcyhlqgn`, and `homestayERP-prod` is obsolete.
 2. The `TESTING` watermark should be controlled by the test Pages path only, not by Supabase URL alone.
