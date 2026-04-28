@@ -182,7 +182,8 @@ var pendingFiles=[],pendingFileNames=[];
 var AI_RECEIPT_SCAN_ENABLED=false;
 var aiResult=null,aiAnalyzing=false,aiError='',newClaimStep='manual';
 var claimSubmitBusy=false,mgrSubmitBusy=false;
-var errorLogs=[],errorLogLoading=false;
+var errorLogs=[],errorLogLoading=false,errorLogPage=1,errorLogTotal=0,errorLogHasMore=false;
+var ERROR_LOG_PAGE_SIZE=50,frontendLogBusy=false;
 var unitTypes=[],unitConfig=[];
 var rptUnit='',rptMonth='',rptYear='';
 var editingUnitType=null,editingUnitCfg=null,utFormError='',ucFormError='';
@@ -194,10 +195,66 @@ var ATTACHMENT_URLS={};
 
 // ===== FRONTEND ERROR LOGGER =====
 async function logFrontendError(level,source,message,details){
+  if(frontendLogBusy||!sb)return;
   try{
-    await sb.from('error_logs').insert({level:level,source:source,message:message,details:details||{},user_agent:navigator.userAgent});
+    frontendLogBusy=true;
+    await sb.from('error_logs').insert({level:level,source:source,message:String(message||'Unknown error').slice(0,1000),details:safeLogDetails(details),user_agent:navigator.userAgent});
   }catch(e){console.error('Failed to log error:',e);}
+  frontendLogBusy=false;
 }
+function safeLogDetails(details){
+  try{
+    return JSON.parse(JSON.stringify(details||{},function(k,v){
+      if(v instanceof Error)return serializeErrorForLog(v);
+      if(typeof v==='string'&&v.length>2000)return v.slice(0,2000)+'...';
+      return v;
+    }));
+  }catch(e){
+    return{serialization_error:e&&e.message?e.message:String(e)};
+  }
+}
+function serializeErrorForLog(error){
+  if(!error)return{};
+  if(typeof error==='string')return{message:error};
+  var out={};
+  ['name','code','message','details','hint','status','statusCode'].forEach(function(k){if(error[k]!==undefined&&error[k]!==null)out[k]=error[k];});
+  if(error.stack)out.stack=String(error.stack).slice(0,2000);
+  if(!Object.keys(out).length){
+    try{out.value=JSON.stringify(error).slice(0,2000);}catch(e){out.value=String(error).slice(0,2000);}
+  }
+  return out;
+}
+function installGlobalErrorLogging(){
+  if(window.__homeExpenseErrorLoggingInstalled)return;
+  window.__homeExpenseErrorLoggingInstalled=true;
+  window.addEventListener('error',function(ev){
+    logFrontendError('error','window.error',ev.message||'Unhandled frontend error',{filename:ev.filename||'',lineno:ev.lineno||0,colno:ev.colno||0,error:serializeErrorForLog(ev.error)});
+  });
+  window.addEventListener('unhandledrejection',function(ev){
+    var reason=ev.reason||{};
+    logFrontendError('error','unhandledrejection',reason.message||'Unhandled promise rejection',{reason:serializeErrorForLog(reason)});
+  });
+}
+function claimSubmitFailureText(error){
+  return error&&error.message?String(error.message).slice(0,120):'Failed to save expense';
+}
+async function logClaimSubmitFailure(source,claim,error,context){
+  await logFrontendError('error',source,claimSubmitFailureText(error),{
+    claim_id:claim&&claim.id?claim.id:'',
+    pay_type:claim&&claim.payType?claim.payType:'',
+    submitted_by:claim&&claim.submittedBy?claim.submittedBy:'',
+    category:claim&&claim.category?claim.category:'',
+    unit:claim&&claim.unit?claim.unit:'',
+    amount:claim&&claim.amount!==undefined?claim.amount:null,
+    date:claim&&claim.date?claim.date:'',
+    expense_month:claim&&claim.expMonth?claim.expMonth:'',
+    receipt_count:claim?splitAttachmentRefs(claim.receiptRefs).length:0,
+    pending_receipt_count:pendingFileNames.length,
+    db_error:serializeErrorForLog(error),
+    context:context||{}
+  });
+}
+installGlobalErrorLogging();
 async function functionAuthHeaders(forceRefresh){
   var{data:sessData}=await sb.auth.getSession();
   var authToken=sessData&&sessData.session&&sessData.session.access_token?sessData.session.access_token:'';
@@ -229,9 +286,13 @@ async function callPublicEdgeFunction(name,body){
 async function loadErrorLogs(){
   errorLogLoading=true;render();
   try{
-    var{data,error}=await sb.from('error_logs').select('*').order('created_at',{ascending:false}).limit(100);
+    var start=(errorLogPage-1)*ERROR_LOG_PAGE_SIZE;
+    var end=start+ERROR_LOG_PAGE_SIZE-1;
+    var{data,error,count}=await sb.from('error_logs').select('*',{count:'exact'}).order('created_at',{ascending:false}).range(start,end);
     if(error)throw error;
     errorLogs=data||[];
+    errorLogTotal=count||0;
+    errorLogHasMore=errorLogTotal?end+1<errorLogTotal:errorLogs.length===ERROR_LOG_PAGE_SIZE;
   }catch(e){console.error('Failed to load error logs:',e);errorLogs=[];}
   errorLogLoading=false;render();
 }
@@ -493,7 +554,7 @@ async function getNextClaimId(prefix){
 async function dbInsertClaim(c){
   var{error}=await sb.from('claims').insert({claim_id:c.id,emp:c.emp,unit:c.unit,hp_unit_id:c.hpUnitId||null,category:c.category,description:c.desc,amount:c.amount,date:c.date,expense_month:c.expMonth||c.date.slice(0,7),status:c.status,reject_reason:c.rejectReason,slip_ref:c.slipRef,pay_type:c.payType,submitted_by:c.submittedBy,charged_to:c.chargedTo||'',created_by:currentUser.id,invoice_number:c.invoiceNumber||'',merchant_name:c.merchantName||'',ai_raw:c.aiRaw||{},ai_confidence:c.aiConfidence||0,source_type:c.sourceType||'manual',external_id:c.externalId||null,external_source:c.externalSource||null,receipt_refs:c.receiptRefs||'',payment_slip_refs:c.paymentSlipRefs||''});
   if(error)console.error('dbInsertClaim:',error);
-  return !error;
+  return{ok:!error,error:error};
 }
 async function dbUpdateClaim(claimId,fields){
   var upd={updated_at:new Date().toISOString()};
@@ -701,6 +762,15 @@ function ccCard(c,fn){
 }
 function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show');},2500);}
 function esc(v){return String(v===undefined||v===null?'':v).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function logDetailValue(v){
+  if(v===undefined||v===null)return'';
+  if(typeof v==='object'){
+    try{v=JSON.stringify(v);}catch(e){v=String(v);}
+  }
+  v=String(v);
+  if(v.length>180)v=v.slice(0,180)+'...';
+  return esc(v);
+}
 function fmtDateShort(v){if(!v)return'--';var d=String(v).slice(0,10);return d.length===10?d.slice(8,10)+' '+(MONTHS[d.slice(5,7)]||d.slice(5,7)):esc(v);}
 function expMonthSelect(selVal){
   var now=new Date();var opts=[];
@@ -1495,13 +1565,13 @@ async function submitNewClaim(asDraft){
     var nc={id:cid,emp:myName(),unit:'',category:cv,desc:dv||'(untitled)',amount:av||0,date:dtv||new Date().toISOString().slice(0,10),expMonth:expM,status:asDraft?'Draft':'Submitted',rejectReason:'',slipRef:'',receiptRefs:'',paymentSlipRefs:'',payType:'employee',submittedBy:'self',invoiceNumber:aiResult?(aiResult.invoice_number||aiResult.reference_number||''):'',merchantName:aiResult?(aiResult.merchant_name||''):'',aiRaw:aiResult||{},aiConfidence:aiResult?(aiResult.confidence||0):0,sourceType:aiResult?'ai_scan':'manual'};
     if(pendingFiles.length){
       var receiptRefs='';
-      try{receiptRefs=await uploadAllFiles(cid,{category:cv,unit:'',desc:dv||'',date:dtv||new Date().toISOString().slice(0,10),aiItems:aiResult?aiResult.items:null});}catch(e){console.error(e);toast(e&&e.message?e.message:'Receipt upload failed');claimSubmitBusy=false;render();return;}
+      try{receiptRefs=await uploadAllFiles(cid,{category:cv,unit:'',desc:dv||'',date:dtv||new Date().toISOString().slice(0,10),aiItems:aiResult?aiResult.items:null});}catch(e){console.error(e);await logClaimSubmitFailure('submitNewClaim.receiptUpload',nc,e,{as_draft:asDraft});toast(e&&e.message?e.message:'Receipt upload failed');claimSubmitBusy=false;render();return;}
       if(!receiptRefs){toast('Receipt upload failed');claimSubmitBusy=false;render();return;}
       nc.receiptRefs=receiptRefs;
     }
-    var ok=await dbInsertClaim(nc);
+    var insertResult=await dbInsertClaim(nc);
     claimSubmitBusy=false;
-    if(!ok){toast('Failed to save claim');render();return;}
+    if(!insertResult.ok){await logClaimSubmitFailure('submitNewClaim.dbInsert',nc,insertResult.error,{as_draft:asDraft});toast('Failed to save claim: '+claimSubmitFailureText(insertResult.error));render();return;}
     addClaimLocal(nc);
     hydrateClaimAttachmentUrls([nc]).then(function(){if(S==='empList'||S==='claimDetail')render();});
     toast(asDraft?'Draft saved':'Claim '+cid+' submitted!');
@@ -1510,6 +1580,7 @@ async function submitNewClaim(asDraft){
     refreshClaimsInBackground();
   }catch(e){
     console.error(e);
+    await logFrontendError('error','submitNewClaim.exception',e&&e.message?e.message:'Claim submit failed',{as_draft:asDraft,error:serializeErrorForLog(e)});
     claimSubmitBusy=false;
     toast(e&&e.message?e.message:'Claim submit failed');
     render();
@@ -1540,13 +1611,13 @@ async function submitMgrClaim(){
     var nc={id:cid,emp:isCompany?'':mgrFormEmp,unit:uv,hpUnitId:unitHpId(uv),category:cv,desc:dv,amount:av,date:dtv,expMonth:expM,status:isCompany?'Company-Paid':'Auto-Approved',rejectReason:'',slipRef:'',receiptRefs:'',paymentSlipRefs:'',payType:mgrFormPayType,submittedBy:'manager',chargedTo:isMP?'':charged.value,invoiceNumber:aiResult?(aiResult.invoice_number||aiResult.reference_number||''):'',merchantName:aiResult?(aiResult.merchant_name||''):'',aiRaw:aiResult||{},aiConfidence:aiResult?(aiResult.confidence||0):0,sourceType:aiResult?'ai_scan':'manual'};
     if(pendingFiles.length){
       var receiptRefs='';
-      try{receiptRefs=await uploadAllFiles(cid,{category:cv,unit:uv,desc:dv,date:dtv});}catch(e){console.error(e);toast(e&&e.message?e.message:'Receipt upload failed');mgrSubmitBusy=false;render();return;}
+      try{receiptRefs=await uploadAllFiles(cid,{category:cv,unit:uv,desc:dv,date:dtv});}catch(e){console.error(e);await logClaimSubmitFailure('submitMgrClaim.receiptUpload',nc,e,{is_company:isCompany});toast(e&&e.message?e.message:'Receipt upload failed');mgrSubmitBusy=false;render();return;}
       if(!receiptRefs){toast('Receipt upload failed');mgrSubmitBusy=false;render();return;}
       nc.receiptRefs=receiptRefs;
     }
-    var ok=await dbInsertClaim(nc);
+    var insertResult=await dbInsertClaim(nc);
     mgrSubmitBusy=false;
-    if(!ok){toast('Failed to save expense');render();return;}
+    if(!insertResult.ok){await logClaimSubmitFailure('submitMgrClaim.dbInsert',nc,insertResult.error,{is_company:isCompany});toast('Failed to save expense: '+claimSubmitFailureText(insertResult.error));render();return;}
     addClaimLocal(nc);
     hydrateClaimAttachmentUrls([nc]).then(function(){if(S==='adminDash'||S==='adminList')render();});
     toast(isCompany?'Recorded as Company-Paid':'Auto-approved for '+mgrFormEmp);
@@ -1554,6 +1625,7 @@ async function submitMgrClaim(){
     refreshClaimsInBackground();
   }catch(e){
     console.error(e);
+    await logFrontendError('error','submitMgrClaim.exception',e&&e.message?e.message:'Expense submit failed',{pay_type:mgrFormPayType,error:serializeErrorForLog(e)});
     mgrSubmitBusy=false;
     toast(e&&e.message?e.message:'Expense submit failed');
     render();
@@ -2065,10 +2137,10 @@ function render(){
         var detailStr='';
         if(log.details&&typeof log.details==='object'){
           var keys=Object.keys(log.details);
-          if(keys.length>0){detailStr=keys.map(function(k){var v=log.details[k];if(typeof v==='string'&&v.length>80)v=v.substring(0,80)+'...';return'<div style="font-size:10px;color:#6b7280"><span style="color:#374151;font-weight:500">'+k+':</span> '+v+'</div>';}).join('');}
+          if(keys.length>0){detailStr=keys.map(function(k){var v=log.details[k];return'<div style="font-size:10px;color:#6b7280"><span style="color:#374151;font-weight:500">'+esc(k)+':</span> '+logDetailValue(v)+'</div>';}).join('');}
         }
         var resolvedTag=log.resolved?'<span style="font-size:9px;color:#065f46;background:#d1fae5;padding:1px 5px;border-radius:99px">Resolved</span>':'';
-        return'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:6px'+(log.resolved?';opacity:0.6':'')+'"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="font-size:9px;color:'+lvlColor+';background:'+lvlBg+';padding:1px 6px;border-radius:99px;font-weight:600;text-transform:uppercase">'+log.level+'</span><span style="font-size:10px;color:#6b7280;font-family:monospace">'+log.source+'</span>'+resolvedTag+'<span style="font-size:10px;color:#9ca3af;margin-left:auto">'+timeStr+'</span></div><div style="font-size:12px;color:#111;font-weight:500;margin-bottom:3px;word-break:break-word">'+log.message+'</div>'+detailStr+(!log.resolved?'<div style="margin-top:5px"><span style="font-size:10px;color:#2563eb;cursor:pointer;text-decoration:underline" onclick="resolveErrorLog('+log.id+')">Mark resolved</span></div>':'')+'</div>';
+        return'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:6px'+(log.resolved?';opacity:0.6':'')+'"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="font-size:9px;color:'+lvlColor+';background:'+lvlBg+';padding:1px 6px;border-radius:99px;font-weight:600;text-transform:uppercase">'+esc(log.level)+'</span><span style="font-size:10px;color:#6b7280;font-family:monospace">'+esc(log.source)+'</span>'+resolvedTag+'<span style="font-size:10px;color:#9ca3af;margin-left:auto">'+timeStr+'</span></div><div style="font-size:12px;color:#111;font-weight:500;margin-bottom:3px;word-break:break-word">'+esc(log.message)+'</div>'+detailStr+(!log.resolved?'<div style="margin-top:5px"><span style="font-size:10px;color:#2563eb;cursor:pointer;text-decoration:underline" onclick="resolveErrorLog('+log.id+')">Mark resolved</span></div>':'')+'</div>';
       }).join('');
     }
     var syncCards='';
@@ -2085,7 +2157,11 @@ function render(){
     }
     var errCount=errorLogs.filter(function(l){return l.level==='error'&&!l.resolved;}).length;
     var warnCount=errorLogs.filter(function(l){return l.level==='warn'&&!l.resolved;}).length;
-    ms.innerHTML='<div class="scr"><div style="display:flex;gap:6px;margin-bottom:8px"><div style="flex:1;background:#fee2e2;border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:#991b1b">'+errCount+'</div><div style="font-size:10px;color:#991b1b">Errors</div></div><div style="flex:1;background:#fef3c7;border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:#92400e">'+warnCount+'</div><div style="font-size:10px;color:#92400e">Warnings</div></div><div style="flex:1;background:#d1fae5;border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:#065f46">'+syncLogs.length+'</div><div style="font-size:10px;color:#065f46">Sync Runs</div></div></div><div style="display:flex;gap:6px;margin-bottom:8px"><button class="pbtn btn-o" style="flex:1;font-size:11px;padding:6px" onclick="openErrorLogs()">↻ Refresh</button><button class="pbtn btn-o" style="flex:1;font-size:11px;padding:6px;color:#991b1b" onclick="clearResolvedLogs()">Clear Resolved</button></div><div style="font-size:12px;font-weight:600;color:#374151;margin:2px 0 6px">Reservation Sync Logs</div>'+syncCards+'<div style="font-size:12px;font-weight:600;color:#374151;margin:10px 0 6px">Error & Admin Logs</div>'+logCards+'</div>';
+    var logStart=errorLogs.length?(errorLogPage-1)*ERROR_LOG_PAGE_SIZE+1:0;
+    var logEnd=(errorLogPage-1)*ERROR_LOG_PAGE_SIZE+errorLogs.length;
+    var logTotalLabel=errorLogTotal||errorLogs.length;
+    var logPager='<div style="display:flex;align-items:center;gap:6px;margin:8px 0"><button class="pbtn btn-o" style="flex:1;font-size:11px;padding:6px" onclick="prevErrorLogPage()"'+(errorLogPage<=1?' disabled':'')+'>Back</button><div style="font-size:10px;color:#6b7280;text-align:center;min-width:108px">'+logStart+'-'+logEnd+' of '+logTotalLabel+'</div><button class="pbtn btn-o" style="flex:1;font-size:11px;padding:6px" onclick="nextErrorLogPage()"'+(!errorLogHasMore?' disabled':'')+'>Next</button></div>';
+    ms.innerHTML='<div class="scr"><div style="display:flex;gap:6px;margin-bottom:8px"><div style="flex:1;background:#fee2e2;border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:#991b1b">'+errCount+'</div><div style="font-size:10px;color:#991b1b">Errors</div></div><div style="flex:1;background:#fef3c7;border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:#92400e">'+warnCount+'</div><div style="font-size:10px;color:#92400e">Warnings</div></div><div style="flex:1;background:#d1fae5;border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:#065f46">'+syncLogs.length+'</div><div style="font-size:10px;color:#065f46">Sync Runs</div></div></div><div style="display:flex;gap:6px;margin-bottom:8px"><button class="pbtn btn-o" style="flex:1;font-size:11px;padding:6px" onclick="openErrorLogs()">↻ Refresh</button><button class="pbtn btn-o" style="flex:1;font-size:11px;padding:6px;color:#991b1b" onclick="clearResolvedLogs()">Clear Resolved</button></div><div style="font-size:12px;font-weight:600;color:#374151;margin:2px 0 6px">Reservation Sync Logs</div>'+syncCards+'<div style="font-size:12px;font-weight:600;color:#374151;margin:10px 0 6px">Error & Admin Logs</div>'+logPager+logCards+logPager+'</div>';
   }
   else if(S==='reportHome'){
     tbt_el.textContent='Reporting';bb_el.style.display='block';adminNav('report');
@@ -2478,9 +2554,20 @@ window.mgrChangeToApprove=async function(){
 };
 window.openErrorLogs=function(){
   if(!isSystemAdmin){toast('Only admin can access logs');return;}
+  if(S!=='errorLogs')errorLogPage=1;
   ss('errorLogs',adminHomeScreen());
   loadErrorLogs();
   loadSyncLogs().then(function(){if(S==='errorLogs')render();});
+};
+window.nextErrorLogPage=function(){
+  if(!errorLogHasMore)return;
+  errorLogPage+=1;
+  loadErrorLogs();
+};
+window.prevErrorLogPage=function(){
+  if(errorLogPage<=1)return;
+  errorLogPage-=1;
+  loadErrorLogs();
 };
 window.toggleInactiveUnits=function(){showInactiveUnits=!showInactiveUnits;render();};
 window.resolveErrorLog=async function(id){
