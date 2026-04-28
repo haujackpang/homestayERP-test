@@ -1,5 +1,11 @@
 # Decisions Log
 
+## 2026-04-28: Report Sales And Profit Formula
+Decision: Assign report sales by reservation checkout date (`end_date`) and calculate Homestay Profit as `Sales - Subtotal Expenses`, where Subtotal Expenses includes shared expenses charged to Both plus calculated Cleaning fee.
+
+Reason:
+The business wants March sales to include reservations that check out in March. Cleaning fee already appears in Expenses, so it should be included in Subtotal Expenses and omitted from the booking summary to keep Homestay Management Fee and Owner Profit consistent.
+
 ## 2026-04-26: Reconfirm Test And Live Supabase Mapping
 Decision: Treat `afcifzghlkxvnpulahub` as the test Supabase project for `homestayERP-test`, and `skwogboredsczcyhlqgn` as the live Supabase project for `homestay-expenses`.
 
@@ -179,10 +185,10 @@ Reason:
 The owner PDF needs to show how the final owner amount is derived, not only summarize expense categories.
 
 ## 2026-04-23: Owner Profit Reporting Formula
-Decision: Report owner profit from sales after shared expenses, management fee, cleaning fee, and owner-charged expenses.
+Decision: Report owner profit from sales after Subtotal Expenses, management fee, and owner-charged expenses.
 
 Reason:
-The business wants reports to emphasize Homestay Management Fee and Owner Profit. Homestay profit is sales minus expenses charged to Both; management fee is calculated from that homestay profit, while owner expenses exclude the management fee.
+The business wants reports to emphasize Homestay Management Fee and Owner Profit. Homestay profit is sales minus Subtotal Expenses, including shared expenses charged to Both plus calculated Cleaning fee; management fee is calculated from that homestay profit, while owner expenses exclude the management fee.
 
 ## 2026-04-23: Cleaning Fee Display In PDF
 Decision: Show PDF `Cleaning fee` in the shared expenses/expense details area and exclude it from Owner Expenses.
@@ -215,10 +221,10 @@ Reason:
 Test and live data must stay isolated. Missing deployment config should show a clear error, not connect to the wrong database or show a test watermark/data mix in live.
 
 ## 2026-04-24: Cleaning Fee In Expenses Details
-Decision: On the report page and owner PDF, label the report summary row as `Cleaning fee` and include the calculated cleaning fee inside the Expenses details list/table.
+Decision: On the report page and owner PDF, include the calculated cleaning fee inside the Expenses details list/table.
 
 Reason:
-The user wants Cleaning fee treated as part of the Expenses detail presentation, with clearer wording and without implying test-only totals or a separate hidden bucket.
+The user wants Cleaning fee treated as part of the Expenses detail presentation, with clearer wording and without implying test-only totals or a separate hidden bucket. The booking summary should not repeat the Cleaning fee row because the category already appears below.
 
 ## 2026-04-24: Promote Environment Separation And Report Label Fixes To Live
 Decision: After test verification, promote the environment-isolation fix and report wording/detail fixes to `homestayERP-prod`.

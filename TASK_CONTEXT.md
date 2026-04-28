@@ -9,6 +9,14 @@ Current focus:
 5. Move normal claim attachments to signed upload/read helpers because the `receipts` bucket is private.
 6. Keep the rollout test-first; use the focused script `supabase-claims-manager-access.sql` only in environments where manager claim access still follows admin-only policies.
 
+2026-04-27 update (implemented in test first):
+1. Claims cleanup: normal Claims pages now hide paid-out (`Claimed`, `Company-Paid`) and keep them out of the active queue.
+2. History: employee can review own payout history (`Claimed`); manager can review all payout history (`Claimed`).
+3. Unit expenses: manager can review all non-draft expenses per unit via Reporting -> Unit Expenses (includes `Claimed` and `Company-Paid`).
+4. Delete: confirmed delete for unpaid claims (employee: own only, manager/admin: any unpaid) with focused test DB policies in `supabase-claim-delete-policies.sql`.
+5. AI scan off: disabled in UI and blocked at Edge Functions unless `AI_RECEIPT_SCAN_ENABLED=true` is set later in Supabase secrets.
+6. Submit speed: successful submit inserts into local state immediately, then refreshes claims in the background.
+
 Environment guardrails that still apply:
 1. Test is `homestayERP-test` / `afcifzghlkxvnpulahub`, live is `homestay-expenses` / `skwogboredsczcyhlqgn`, and `homestayERP-prod` is obsolete.
 2. The `TESTING` watermark should be controlled by the test Pages path only, not by Supabase URL alone.
@@ -71,13 +79,14 @@ Recent unit-pairing context:
   - employee claim submit with attachment now persists `receipt_refs`
   - manager `Mark as Claimed` now persists `payment_slip_refs` without overwriting `receipt_refs`
   - manager `All Claims` pagination `Next` moves from page 1 to page 2 on the deployed test Pages app
-- Report PDF cleaning fee uses `(cleaning_fee + laundry_fee) x reservation count`, displayed as `Cleaning fee` in the shared expenses/expense details area.
-- Report page should display the same wording as `Cleaning fee` and include it in the visible Expenses detail list.
-- Homestay profit = sales - sharing expenses charged to Both.
+- Report sales are assigned by checkout date (`end_date`), so a month includes reservations checking out in that month.
+- Report PDF cleaning fee uses `(cleaning_fee + laundry_fee) x checkout-month reservation count`, displayed as `Cleaning fee` in the shared expenses/expense details area.
+- Report page should include calculated `Cleaning fee` in the visible Expenses detail list, but not repeat it in the booking summary.
+- Homestay profit = sales - Subtotal Expenses, where Subtotal Expenses = expenses charged to Both + calculated Cleaning fee.
 - Homestay Management Fee = homestay profit x `service_fee_pct` / 100.
 - Owner Expenses = expenses charged to Owner, excluding Cleaning fee and Homestay Management Fee.
 - Owner Profit = homestay profit - Homestay Management Fee - Owner Expenses.
-- Report page Expenses section includes shared claims and Total Cleaning Fee.
+- Report page Expenses section includes shared claims and calculated Cleaning fee.
 - The admin user-management flow now uses `profiles` fallback when auth user listing is incomplete, so the UI can still show users and allow password resets.
 - Internal units and HostPlatform rows should not share the same primary edit workflow in the admin UI.
 - Editing a `source='hostplatform'` row should open a pairing-focused form, while editing a non-HP row should open the internal-unit form.
