@@ -1407,6 +1407,56 @@ function claimInsertFailureMessage(claim,error,prefix){
   if(dup||String(error&&error.message||'').indexOf('claims_dup_check')>=0)return dbDuplicateClaimMessage(dup);
   return prefix+': '+claimSubmitFailureText(error);
 }
+function isClaimsDupCheckError(error){
+  var code=String(error&&error.code||'');
+  var msg=[error&&error.message,error&&error.details,error&&error.hint].filter(Boolean).join(' ');
+  return code==='23505'||msg.indexOf('claims_dup_check')>=0;
+}
+async function findDbExactDuplicateClaimId(claim){
+  try{
+    var q=sb.from('claims')
+      .select('claim_id')
+      .eq('emp',claim&&claim.emp?claim.emp:'')
+      .eq('date',String(claim&&claim.date?claim.date:'').slice(0,10))
+      .eq('amount',claim&&claim.amount!==undefined?claim.amount:0)
+      .eq('description',claim&&claim.desc?claim.desc:'')
+      .neq('status','Rejected')
+      .neq('status','Draft')
+      .order('created_at',{ascending:false})
+      .limit(1);
+    var res=await q;
+    if(res.error){console.warn('findDbExactDuplicateClaimId:',res.error);return null;}
+    return res.data&&res.data.length?res.data[0].claim_id:null;
+  }catch(e){
+    console.error('findDbExactDuplicateClaimId:',e);
+    return null;
+  }
+}
+async function ensureClaimLoaded(claimId){
+  var c=claims.filter(function(x){return x.id===claimId;})[0]||null;
+  if(c)return c;
+  try{await loadClaims();}catch(e){console.error('ensureClaimLoaded.loadClaims failed:',e);}
+  return claims.filter(function(x){return x.id===claimId;})[0]||null;
+}
+async function attachReceiptRefsToClaim(claimId,newRefs){
+  if(!claimId||!newRefs)return false;
+  var c=await ensureClaimLoaded(claimId);
+  var merged=mergeAttachmentRefs(c?c.receiptRefs:'',newRefs);
+  var ok=await dbUpdateClaim(claimId,{receiptRefs:merged});
+  if(ok&&c){
+    c.receiptRefs=merged;
+    hydrateClaimAttachmentUrls([c]).then(function(){render();});
+  }
+  return ok;
+}
+async function openClaimById(claimId,parentScreen){
+  if(!claimId)return false;
+  var c=await ensureClaimLoaded(claimId);
+  if(!c)return false;
+  SEL=c;
+  ss(R==='admin'?'adminReview':'claimDetail',parentScreen||S);
+  return true;
+}
 
 function goToManualEntry(){
   newClaimStep='manual';aiResult=null;aiError='';render();
@@ -1637,7 +1687,28 @@ async function submitNewClaim(asDraft){
     }
     var insertResult=await dbInsertClaim(nc);
     claimSubmitBusy=false;
-    if(!insertResult.ok){await logClaimSubmitFailure('submitNewClaim.dbInsert',nc,insertResult.error,{as_draft:asDraft});toast(claimInsertFailureMessage(nc,insertResult.error,'Failed to save claim'));render();return;}
+    if(!insertResult.ok){
+      if(isClaimsDupCheckError(insertResult.error)){
+        var dupExact=activeClaimDbDuplicate(nc.emp,nc.date,nc.amount,nc.desc);
+        var dupId=(dupExact&&dupExact.id)?dupExact.id:await findDbExactDuplicateClaimId(nc);
+        await logClaimSubmitFailure('submitNewClaim.dbInsert',nc,insertResult.error,{as_draft:asDraft,duplicate_of:dupId||''});
+        if(dupId&&nc.receiptRefs){
+          var attached=await attachReceiptRefsToClaim(dupId,nc.receiptRefs);
+          if(attached){
+            toast('Duplicate blocked: attached receipt(s) to '+dupId);
+            await openClaimById(dupId,'empList');
+            return;
+          }
+        }
+        toast(dupId?('Duplicate blocked: '+dupId+' already exists. Please edit the existing claim.'):dbDuplicateClaimMessage(null));
+        if(dupId)await openClaimById(dupId,'empList');
+        return;
+      }
+      await logClaimSubmitFailure('submitNewClaim.dbInsert',nc,insertResult.error,{as_draft:asDraft});
+      toast(claimInsertFailureMessage(nc,insertResult.error,'Failed to save claim'));
+      render();
+      return;
+    }
     addClaimLocal(nc);
     hydrateClaimAttachmentUrls([nc]).then(function(){if(S==='empList'||S==='claimDetail')render();});
     toast(asDraft?'Draft saved':'Claim '+cid+' submitted!');
@@ -1686,7 +1757,28 @@ async function submitMgrClaim(){
     }
     var insertResult=await dbInsertClaim(nc);
     mgrSubmitBusy=false;
-    if(!insertResult.ok){await logClaimSubmitFailure('submitMgrClaim.dbInsert',nc,insertResult.error,{is_company:isCompany});toast(claimInsertFailureMessage(nc,insertResult.error,'Failed to save expense'));render();return;}
+    if(!insertResult.ok){
+      if(isClaimsDupCheckError(insertResult.error)){
+        var dupExact=activeClaimDbDuplicate(nc.emp,nc.date,nc.amount,nc.desc);
+        var dupId=(dupExact&&dupExact.id)?dupExact.id:await findDbExactDuplicateClaimId(nc);
+        await logClaimSubmitFailure('submitMgrClaim.dbInsert',nc,insertResult.error,{is_company:isCompany,duplicate_of:dupId||''});
+        if(dupId&&nc.receiptRefs){
+          var attached=await attachReceiptRefsToClaim(dupId,nc.receiptRefs);
+          if(attached){
+            toast('Duplicate blocked: attached receipt(s) to '+dupId);
+            await openClaimById(dupId,'adminDash');
+            return;
+          }
+        }
+        toast(dupId?('Duplicate blocked: '+dupId+' already exists. Please edit the existing claim.'):dbDuplicateClaimMessage(null));
+        if(dupId)await openClaimById(dupId,'adminDash');
+        return;
+      }
+      await logClaimSubmitFailure('submitMgrClaim.dbInsert',nc,insertResult.error,{is_company:isCompany});
+      toast(claimInsertFailureMessage(nc,insertResult.error,'Failed to save expense'));
+      render();
+      return;
+    }
     addClaimLocal(nc);
     hydrateClaimAttachmentUrls([nc]).then(function(){if(S==='adminDash'||S==='adminList')render();});
     toast(isCompany?'Recorded as Company-Paid':'Auto-approved for '+mgrFormEmp);
@@ -1744,7 +1836,7 @@ async function exportReportPDF(){
     }
     function reportTitle(){
       var hp=UNITS_DATA.filter(function(u){return u.source==='hostplatform'&&unitDisplayName(u)===rptUnit;})[0]||null;
-      if(hp)return ((hp.property_name||'').trim()+' '+(hp.name||rptUnit)).trim();
+      if(hp)return ((hp.property_name||'').trim()+' '+(hp.mapped_unit_name||hp.name||rptUnit)).trim();
       return rptUnit;
     }
     var title=reportTitle();
@@ -2104,7 +2196,7 @@ function render(){
       var clearBtn=u.mappedUnitName?'<button class="pbtn btn-o" style="min-width:84px" onclick="clearPropertyMapping(\''+String(u.unitId||'').replace(/'/g,"\\'")+'\',\''+u.domKey+'\')">Clear</button>':'';
       var derivedShort=u.mappedUnitName?internalUnitShortCode(u.mappedUnitName):'';
       var displayShort=derivedShort||(u.mappedUnitName?(u.propertyShort||''):'');
-      return '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div style="min-width:0;flex:1"><div style="font-size:10px;color:#6b7280">HostPlatform property</div><div style="font-size:12px;font-weight:600;color:#111">'+u.propertyName+'</div><div style="font-size:10px;color:#6b7280;margin-top:6px">HostPlatform unit</div><div style="font-size:12px;font-weight:600;color:#111">'+u.unitName+'</div></div><div style="text-align:right"><div style="font-size:10px;color:'+(u.mappedUnitName?'#065f46':'#92400e')+'">'+(u.mappedUnitName?'Paired':'Unmapped')+'</div><div style="font-size:10px;color:'+(u.active?'#065f46':'#991b1b')+'">'+(u.active?'Active':'Inactive')+'</div><div style="font-size:11px;color:#2563eb;cursor:pointer;text-decoration:underline;margin-top:6px" onclick="editUnit(\''+String(u.unitId||'').replace(/'/g,"\\'")+'\')">Open</div></div></div><div style="font-size:10px;color:#6b7280;margin-top:8px">'+(u.mappedUnitName?'Paired to internal unit: '+u.mappedUnitName:'Choose one internal unit to pair.')+'</div><div class="fg" style="margin-top:8px"><label class="fl">Pair to internal unit</label><select class="fi" id="pm-unit-'+u.domKey+'" onchange="syncMappingShort(\''+u.domKey+'\')">'+unitOpts+'</select></div><div class="fg" style="margin-top:8px"><label class="fl">Display code</label><input class="fi" id="pm-short-'+u.domKey+'" value="'+displayShort+'" readonly style="background:#f3f4f6"/></div><div style="display:flex;gap:6px;align-items:center;margin-top:8px"><button class="pbtn btn-s" style="flex:1" onclick="savePropertyMapping(\''+String(u.unitId||'').replace(/'/g,"\\'")+'\',\''+u.domKey+'\')">'+actionLabel+'</button>'+clearBtn+'</div></div>';
+      return '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div style="min-width:0;flex:1"><div style="font-size:10px;color:#6b7280">HostPlatform property</div><div style="font-size:12px;font-weight:600;color:#111">'+u.propertyName+'</div><div style="font-size:10px;color:#6b7280;margin-top:6px">Unit</div><div style="font-size:12px;font-weight:600;color:#111">'+(u.mappedUnitName||u.unitName)+'</div>'+(u.mappedUnitName&&u.unitName&&u.mappedUnitName!==u.unitName?'<div style="font-size:10px;color:#9ca3af">HP raw: '+u.unitName+'</div>':'')+'</div><div style="text-align:right"><div style="font-size:10px;color:'+(u.mappedUnitName?'#065f46':'#92400e')+'">'+(u.mappedUnitName?'Paired':'Unmapped')+'</div><div style="font-size:10px;color:'+(u.active?'#065f46':'#991b1b')+'">'+(u.active?'Active':'Inactive')+'</div><div style="font-size:11px;color:#2563eb;cursor:pointer;text-decoration:underline;margin-top:6px" onclick="editUnit(\''+String(u.unitId||'').replace(/'/g,"\\'")+'\')">Open</div></div></div><div style="font-size:10px;color:#6b7280;margin-top:8px">'+(u.mappedUnitName?'Paired to internal unit: '+u.mappedUnitName:'Choose one internal unit to pair.')+'</div><div class="fg" style="margin-top:8px"><label class="fl">Pair to internal unit</label><select class="fi" id="pm-unit-'+u.domKey+'" onchange="syncMappingShort(\''+u.domKey+'\')">'+unitOpts+'</select></div><div class="fg" style="margin-top:8px"><label class="fl">Display code</label><input class="fi" id="pm-short-'+u.domKey+'" value="'+displayShort+'" readonly style="background:#f3f4f6"/></div><div style="display:flex;gap:6px;align-items:center;margin-top:8px"><button class="pbtn btn-s" style="flex:1" onclick="savePropertyMapping(\''+String(u.unitId||'').replace(/'/g,"\\'")+'\',\''+u.domKey+'\')">'+actionLabel+'</button>'+clearBtn+'</div></div>';
     }).join(''):(totalHp?'<div style="text-align:center;padding:16px;font-size:12px;color:#6b7280">No HostPlatform rows match the current filter.</div>':'<div style="text-align:center;padding:16px;font-size:12px;color:#6b7280">No HostPlatform unit found yet. Sync units first.</div>');
     var legacyWarning=!totalHp&&legacyHp?'<div class="info-box" style="background:#fef3c7"><div style="font-size:11px;color:#92400e"><span style="font-weight:600">Legacy HP unit rows detected.</span> Run the HP unit repair/migration before pairing.</div></div>':'';
     ms.innerHTML='<div class="scr"><div class="info-box" style="background:#dbeafe"><div style="font-size:11px;color:#1d4ed8"><span style="font-weight:600">Pair each HostPlatform property + unit to one internal unit.</span> Display code is filled from the selected internal unit and stays read-only here.</div></div>'+legacyWarning+'<div style="display:flex;gap:6px;margin-bottom:8px"><button class="pbtn btn-o" style="flex:1" onclick="ss(\'internalUnits\',\'adminUnits\')">Internal Units</button><button class="pbtn btn-p" style="flex:1" onclick="triggerUnitSync()"'+(unitSyncing?' disabled':'')+'>'+(unitSyncing?'Syncing...':'Sync from HP')+'</button></div><div class="fg"><label class="fl">Search property or unit</label><input class="fi" value="'+searchVal+'" placeholder="e.g. KT or 150A" oninput="unitPairingSearch=this.value;render()"/></div><div style="display:flex;gap:6px;margin-bottom:8px">'+filterBtn('All')+filterBtn('Unmapped')+filterBtn('Paired')+'</div><div style="font-size:10px;color:#6b7280;margin-bottom:8px">'+totalHp+' HostPlatform row(s) / '+totalPaired+' paired / '+totalUnmapped+' unmapped</div>'+rows+'</div>';
@@ -2116,7 +2208,7 @@ function render(){
     var shortOpts=isHP?'':shortCodeOptions(editingUnit?editingUnit.property_short||'':'');
     var mappedOpts=isHP?internalUnitMappingOptions(editingUnit.mapped_unit_name||'',editingUnit.id):'';
     var hpDisplayCode=isHP?(internalUnitShortCode(editingUnit.mapped_unit_name||'')||((editingUnit.mapped_unit_name||'')?(editingUnit.property_short||''):'')):'';
-    ms.innerHTML='<div class="scr">'+(unitFormError?'<div class="info-box" style="background:#fee2e2"><div style="font-size:11px;color:#991b1b">'+unitFormError+'</div></div>':'')+(isHP?'<div class="info-box" style="background:#dbeafe"><div style="font-size:11px;color:#1d4ed8">Pair this HostPlatform property + unit to one internal unit.</div></div><div class="fg"><label class="fl">HostPlatform property</label><input class="fi" value="'+(editingUnit.property_name||'')+'" readonly style="background:#f3f4f6"/></div><div class="fg"><label class="fl">HostPlatform unit</label><input class="fi" value="'+editingUnit.name+'" readonly style="background:#f3f4f6"/></div><div class="fg"><label class="fl">Pair to internal unit</label><select class="fi" id="unit-mapped" onchange="syncEditUnitShort()">'+mappedOpts+'</select></div><div class="fg"><label class="fl">Display code</label><input class="fi" id="unit-short" value="'+hpDisplayCode+'" readonly style="background:#f3f4f6"/></div><div class="ai-manual-link" style="margin-top:2px" onclick="openPropertyMapping()">Manage all HostPlatform pairing -></div>':'<div class="fg"><label class="fl">Unit name *</label><input class="fi" id="unit-name" value="'+(editingUnit?editingUnit.name:'')+'" placeholder="e.g. MP Office"/></div><div class="fg"><label class="fl">Display code (optional)</label><select class="fi" id="unit-short">'+shortOpts+'</select><div style="font-size:10px;color:#6b7280;margin-top:4px">Used for display/reporting only. Not used for HostPlatform pairing.</div></div>')+'<button class="pbtn btn-p" onclick="saveUnit()">'+(isHP?(editingUnit&&editingUnit.mapped_unit_name?'Update Pairing':'Save Pairing'):(editingUnit?'Save Changes':'Add Internal Unit'))+'</button><button class="pbtn btn-o" style="margin-top:6px" onclick="ss(\''+(isHP?'propertyMapping':'internalUnits')+'\',\'adminUnits\')">Cancel</button></div>';
+    ms.innerHTML='<div class="scr">'+(unitFormError?'<div class="info-box" style="background:#fee2e2"><div style="font-size:11px;color:#991b1b">'+unitFormError+'</div></div>':'')+(isHP?'<div class="info-box" style="background:#dbeafe"><div style="font-size:11px;color:#1d4ed8">Pair this HostPlatform property + unit to one internal unit.</div></div><div class="fg"><label class="fl">HostPlatform property</label><input class="fi" value="'+(editingUnit.property_name||'')+'" readonly style="background:#f3f4f6"/></div><div class="fg"><label class="fl">Unit (paired display)</label><input class="fi" value="'+(editingUnit.mapped_unit_name||editingUnit.name||'')+'" readonly style="background:#f3f4f6"/></div>'+(editingUnit.mapped_unit_name&&editingUnit.name&&editingUnit.mapped_unit_name!==editingUnit.name?'<div style="font-size:10px;color:#9ca3af;margin:-4px 0 8px 2px">HP raw: '+editingUnit.name+'</div>':'')+'<div class="fg"><label class="fl">Pair to internal unit</label><select class="fi" id="unit-mapped" onchange="syncEditUnitShort()">'+mappedOpts+'</select></div><div class="fg"><label class="fl">Display code</label><input class="fi" id="unit-short" value="'+hpDisplayCode+'" readonly style="background:#f3f4f6"/></div><div class="ai-manual-link" style="margin-top:2px" onclick="openPropertyMapping()">Manage all HostPlatform pairing -></div>':'<div class="fg"><label class="fl">Unit name *</label><input class="fi" id="unit-name" value="'+(editingUnit?editingUnit.name:'')+'" placeholder="e.g. MP Office"/></div><div class="fg"><label class="fl">Display code (optional)</label><select class="fi" id="unit-short">'+shortOpts+'</select><div style="font-size:10px;color:#6b7280;margin-top:4px">Used for display/reporting only. Not used for HostPlatform pairing.</div></div>')+'<button class="pbtn btn-p" onclick="saveUnit()">'+(isHP?(editingUnit&&editingUnit.mapped_unit_name?'Update Pairing':'Save Pairing'):(editingUnit?'Save Changes':'Add Internal Unit'))+'</button><button class="pbtn btn-o" style="margin-top:6px" onclick="ss(\''+(isHP?'propertyMapping':'internalUnits')+'\',\'adminUnits\')">Cancel</button></div>';
   }
   else if(S==='adminPay'){
     tbt_el.textContent='Pay Out';bb_el.style.display='block';adminNav('pay');

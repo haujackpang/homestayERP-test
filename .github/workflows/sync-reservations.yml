@@ -2,25 +2,25 @@ name: Scheduled Reservation Import
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "0 0 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: sync-reservations-live
+  group: sync-reservations-test
   cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    if: github.repository == 'haujackpang/homestay-expenses'
+    if: github.repository == 'haujackpang/homestayERP-test'
     steps:
-      - name: Verify live repository
+      - name: Verify test repository
         run: |
-          if [ "${{ github.repository }}" != "haujackpang/homestay-expenses" ]; then
-            echo "This workflow is only allowed in the live repository."
+          if [ "${{ github.repository }}" != "haujackpang/homestayERP-test" ]; then
+            echo "This workflow is only allowed in the test repository."
             exit 1
           fi
 
@@ -28,25 +28,66 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           set -euo pipefail
 
-          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_KEY:-}" ]; then
-            echo "Missing SUPABASE_URL or SUPABASE_KEY."
+          if [ -z "${SUPABASE_URL:-}" ] || { [ -z "${SUPABASE_KEY:-}" ] && [ -z "${SUPABASE_SERVICE_KEY:-}" ]; }; then
+            echo "Missing SUPABASE_URL, and no SUPABASE_KEY or SUPABASE_SERVICE_KEY provided."
             exit 1
           fi
 
-          project_ref="${SUPABASE_URL#https://}"
-          project_ref="${project_ref%%.supabase.co*}"
-          echo "Calling Supabase project ref: ${project_ref}"
+          # Normalize secrets to avoid hidden whitespace, trailing slashes, or accidental path suffixes.
+          supabase_url="$(echo -n "${SUPABASE_URL}" | tr -d '\r' | xargs)"
+          supabase_url="${supabase_url%/}"
+          case "${supabase_url}" in
+            https://*)
+              supabase_scheme="https"
+              supabase_host="${supabase_url#https://}"
+              ;;
+            http://*)
+              supabase_scheme="http"
+              supabase_host="${supabase_url#http://}"
+              ;;
+            *)
+              echo "SUPABASE_URL must start with http:// or https://."
+              exit 1
+              ;;
+          esac
+          supabase_host="${supabase_host%%/*}"
+          supabase_origin="${supabase_scheme}://${supabase_host}"
 
-          http_code="$(curl -sS -o response.txt -w "%{http_code}" \
-            -X POST \
-            "${SUPABASE_URL}/functions/v1/sync-reservations" \
-            -H "apikey: ${SUPABASE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_KEY}" \
-            -H "Content-Type: application/json" \
-            -d '{"type":"scheduled"}')"
+          project_ref="${supabase_origin#https://}"
+          project_ref="${project_ref#http://}"
+          project_ref="${project_ref%%.supabase.co*}"
+          function_origin="https://${project_ref}.functions.supabase.co"
+          echo "Calling Supabase project ref: ${project_ref}"
+          echo "Supabase origin: ${supabase_origin}"
+          echo "Function origin: ${function_origin}"
+
+          call_sync() {
+            local api_key="$1"
+            curl -sS -o response.txt -w "%{http_code}" \
+              -X POST \
+              "${function_origin}/sync-reservations" \
+              -H "apikey: ${api_key}" \
+              -H "Authorization: Bearer ${api_key}" \
+              -H "Content-Type: application/json" \
+              -d '{"type":"scheduled"}'
+          }
+
+          primary_key="${SUPABASE_KEY:-}"
+          if [ -z "${primary_key}" ] && [ -n "${SUPABASE_SERVICE_KEY:-}" ]; then
+            primary_key="${SUPABASE_SERVICE_KEY}"
+          fi
+
+          http_code="$(call_sync "${primary_key}")"
+          if [ "${http_code}" -lt 200 ] || [ "${http_code}" -ge 300 ]; then
+            if [ -n "${SUPABASE_SERVICE_KEY:-}" ] && [ "${primary_key}" != "${SUPABASE_SERVICE_KEY}" ]; then
+              echo "Primary key call failed; retrying with service key..."
+              http_code="$(call_sync "${SUPABASE_SERVICE_KEY}")"
+            fi
+          fi
 
           echo "HTTP status: ${http_code}"
           echo "Response body:"
