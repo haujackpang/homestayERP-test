@@ -125,7 +125,9 @@ serve(async (req: Request) => {
       const hpId = u._id as string;
       if (!hpId) continue;
 
-      const unitName = (u.name as string) || (u.unitName as string) || "";
+      // HostPlatform UI typically shows `unitName`, while `name` can be an internal label/code.
+      // Prefer `unitName` for display consistency, but fall back to `name` when missing.
+      const unitName = (u.unitName as string) || (u.name as string) || "";
       const propertyName = (u.propertyName as string) || "";
       const roomType = u.roomType as Record<string, unknown> | undefined;
       const propObj = roomType?.property as Record<string, unknown> | undefined;
