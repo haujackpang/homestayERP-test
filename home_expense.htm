@@ -236,7 +236,11 @@ function installGlobalErrorLogging(){
   });
 }
 function claimSubmitFailureText(error){
-  return error&&error.message?String(error.message).slice(0,120):'Failed to save expense';
+  if(!error)return'Failed to save expense';
+  if(typeof error==='string')return String(error).slice(0,200);
+  if(error.message)return String(error.message).slice(0,200);
+  if(error.error_description)return String(error.error_description).slice(0,200);
+  try{return JSON.stringify(error).slice(0,200);}catch(e){return String(error).slice(0,200);}
 }
 async function logClaimSubmitFailure(source,claim,error,context){
   await logFrontendError('error',source,claimSubmitFailureText(error),{
@@ -372,6 +376,33 @@ function hpIdsForDisplayUnit(unitName){
   return UNITS_DATA
     .filter(function(u){return u.source==='hostplatform'&&u.active!==false&&unitDisplayName(u)===unitName&&u.hp_unit_id;})
     .map(function(u){return u.hp_unit_id;});
+}
+function reportUnitAliases(unitName){
+  var base=String(unitName||'').trim();
+  if(!base)return[];
+  var out=[base];
+  var m=base.match(/^[A-Za-z]{2,3}\s+(.+)$/);
+  if(m&&m[1])out.push(m[1].trim());
+  if(UNITS_DATA&&UNITS_DATA.length){
+    UNITS_DATA.forEach(function(u){
+      if(!u||u.active===false||u.source!=='hostplatform')return;
+      var raw=u.property_short?u.property_short+' '+u.name:u.name;
+      if(!raw)return;
+      var mapped=String(u.mapped_unit_name||'').trim();
+      var hpName=String(u.name||'').trim();
+      if(mapped&&mapped===base)out.push(raw);
+      if(hpName&&hpName===base)out.push(raw);
+      if(m&&hpName&&hpName===m[1].trim())out.push(raw);
+    });
+  }
+  return uniqueNames(out.filter(Boolean));
+}
+function reportChargeBucket(unitName,chargedTo){
+  var v=String(chargedTo||'');
+  if(v==='Owner'||v==='Operator'||v==='Both')return v;
+  if(String(unitName||'')==='MP Office')return '';
+  // Backward compatibility: older rows may have charged_to='' after the column was added.
+  return 'Both';
 }
 function hpUnitRows(){
   return UNITS_DATA
@@ -1359,9 +1390,9 @@ function activeClaimDbDuplicate(emp,date,amount,desc){
   })[0]||null;
 }
 function dbDuplicateClaimMessage(dup){
-  return dup
-    ?'Duplicate blocked: '+dup.id+' already has the same employee, date, amount and description.'
-    :'Duplicate blocked: this expense already exists with the same employee, date, amount and description.';
+  var id=dup&&dup.id?dup.id:'';
+  if(id)return'Duplicate blocked: '+id+' already exists. Please edit the existing claim instead of submitting again.';
+  return'Duplicate blocked: an existing claim already has the same employee, date, amount and description. Please edit the existing claim instead.';
 }
 function claimInsertFailureMessage(claim,error,prefix){
   var dup=activeClaimDbDuplicate(claim.emp,claim.date,claim.amount,claim.desc);
@@ -1619,6 +1650,7 @@ async function submitMgrClaim(){
   if(!desc||!amt||!dt)return;
   var dv=desc.value,av=parseFloat(amt.value),dtv=dt.value,cv=cat?cat.value:'Other',uv=unit?unit.value:'';
   if(!dv||!av||!dtv){toast('Please fill all required fields');return;}
+  if(!uv){toast('Please select a unit');return;}
   if(aiResult&&aiResult.duplicate_claims&&aiResult.duplicate_claims.length){toast(duplicateClaimMessage(aiResult));return;}
   var charged=document.getElementById('f-charged');
   var isMP=uv==='MP Office';
@@ -1668,9 +1700,10 @@ async function exportReportPDF(){
   if(!jsPDFLib){toast('PDF library not loaded');return;}
   var APPROVED_STATUSES=['Approved','Claimed','Auto-Approved','Company-Paid'];
   var ym=rptYear+'-'+rptMonth;
-  var rc=claims.filter(function(c){return c.unit===rptUnit&&APPROVED_STATUSES.indexOf(c.status)>=0&&(c.expMonth||c.date.slice(0,7))===ym;});
-  var shared=rc.filter(function(c){return c.chargedTo==='Both';});
-  var ownerCl=rc.filter(function(c){return c.chargedTo==='Owner';});
+  var rptAliases=reportUnitAliases(rptUnit);
+  var rc=claims.filter(function(c){return rptAliases.indexOf(c.unit)>=0&&APPROVED_STATUSES.indexOf(c.status)>=0&&(c.expMonth||c.date.slice(0,7))===ym;});
+  var shared=rc.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Both';});
+  var ownerCl=rc.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Owner';});
   var cfg=unitConfig.filter(function(x){return x.unit_name===rptUnit;})[0]||{};
   var ownerName=cfg.owner_name||'—';
   var monthLabel=MONTHS[rptMonth]+' '+rptYear;
@@ -1707,7 +1740,7 @@ async function exportReportPDF(){
     }
     var title=reportTitle();
     var pdfHpIds=hpIdsForDisplayUnit(rptUnit);
-    var pdfRes=reservations.filter(function(r){if(!r.end_date||!r.unit_name)return false;if(r.booking_type===6)return false;if(r.booking_status&&r.booking_status.indexOf('Cancel')>=0)return false;var unitMatch=r.unit_name===rptUnit||(r.hp_unit_id&&pdfHpIds.indexOf(r.hp_unit_id)>=0);return unitMatch&&r.end_date.slice(0,7)===ym;});
+    var pdfRes=reservations.filter(function(r){if(!r.end_date||!r.unit_name)return false;if(r.booking_type===6)return false;if(r.booking_status&&r.booking_status.indexOf('Cancel')>=0)return false;var unitMatch=rptAliases.indexOf(r.unit_name)>=0||(r.hp_unit_id&&pdfHpIds.indexOf(r.hp_unit_id)>=0);return unitMatch&&r.end_date.slice(0,7)===ym;});
     pdfRes.sort(function(a,b){return String(a.end_date||'').localeCompare(String(b.end_date||''));});
     var bkCount=pdfRes.length;
     var bkRev=pdfRes.reduce(function(s,r){return s+parseFloat(r.rental||0)+parseFloat(r.extra_guest||0);},0);
@@ -2223,10 +2256,12 @@ function render(){
     tbt_el.textContent='Expense Report';bb_el.style.display='block';adminNav('report');
     var APPROVED_STATUSES=['Approved','Claimed','Auto-Approved','Company-Paid'];
     var ym=rptYear+'-'+rptMonth;
-    var rptClaims=claims.filter(function(c){return c.unit===rptUnit&&APPROVED_STATUSES.indexOf(c.status)>=0&&(c.expMonth||c.date.slice(0,7))===ym;});
-    var sharedCl=rptClaims.filter(function(c){return c.chargedTo==='Both';});
-    var ownerCl=rptClaims.filter(function(c){return c.chargedTo==='Owner';});
-    var operatorCl=rptClaims.filter(function(c){return c.chargedTo==='Operator';});
+    var rptAliases=reportUnitAliases(rptUnit);
+    var rptClaims=claims.filter(function(c){return rptAliases.indexOf(c.unit)>=0&&APPROVED_STATUSES.indexOf(c.status)>=0&&(c.expMonth||c.date.slice(0,7))===ym;});
+    var sharedCl=rptClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Both';});
+    var ownerCl=rptClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Owner';});
+    var operatorCl=rptClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Operator';});
+    var legacyChargeToCount=rptClaims.filter(function(c){return !c.chargedTo&&c.unit!=='MP Office';}).length;
     var rptCfg=unitConfig.filter(function(x){return x.unit_name===rptUnit;})[0]||{};
     var ownerLabel=rptCfg.owner_name||'—';
     var monthLabel=MONTHS[rptMonth]+' '+rptYear;
@@ -2242,7 +2277,7 @@ function render(){
     rhtml+='<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;color:#6b7280">Owner</span><span style="font-size:12px;font-weight:600">'+ownerLabel+'</span></div><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;color:#6b7280">Unit</span><span style="font-size:12px;font-weight:600">'+rptUnit+'</span></div><div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#6b7280">Period</span><span style="font-size:12px;font-weight:600">'+monthLabel+'</span></div></div>';
     // Booking summary from reservations
     var rptHpIds=hpIdsForDisplayUnit(rptUnit);
-    var rptRes=reservations.filter(function(r){if(!r.end_date||!r.unit_name)return false;if(r.booking_type===6)return false;if(r.booking_status&&r.booking_status.indexOf('Cancel')>=0)return false;var resYm=r.end_date.slice(0,7);var unitMatch=r.unit_name===rptUnit||(r.hp_unit_id&&rptHpIds.indexOf(r.hp_unit_id)>=0);return unitMatch&&resYm===ym;});
+    var rptRes=reservations.filter(function(r){if(!r.end_date||!r.unit_name)return false;if(r.booking_type===6)return false;if(r.booking_status&&r.booking_status.indexOf('Cancel')>=0)return false;var resYm=r.end_date.slice(0,7);var unitMatch=rptAliases.indexOf(r.unit_name)>=0||(r.hp_unit_id&&rptHpIds.indexOf(r.hp_unit_id)>=0);return unitMatch&&resYm===ym;});
     var bookingCount=rptRes.length;
     var bookingRevenue=rptRes.reduce(function(s,r){return s+parseFloat(r.rental||0)+parseFloat(r.extra_guest||0);},0);
     var utCfg=unitConfig.filter(function(x){return x.unit_name===rptUnit;})[0]||{};
@@ -2251,6 +2286,7 @@ function render(){
     var totalCleaning=calcClean+calcLaundry;
     var sharedExpenseRows=sharedCl.slice();
     if(totalCleaning>0)sharedExpenseRows.push({category:'Cleaning fee',amount:totalCleaning});
+    var legacyNote=legacyChargeToCount?'<div style="font-size:10px;color:#6b7280;margin:-2px 0 6px 2px">Includes '+legacyChargeToCount+' legacy expense(s) missing Charge-to (treated as Both).</div>':'';
     var rptProfitPct=parseFloat(utCfg.service_fee_pct||0)||0;
     var subtotalExpenses=stS+totalCleaning;
     var homestayProfit=bookingRevenue-subtotalExpenses;
@@ -2265,7 +2301,7 @@ function render(){
       return '<div style="background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 9px;margin-top:6px"><div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:5px"><div style="font-size:11px;font-weight:700;color:#111;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+guest+'</div><div style="font-size:11px;font-weight:700;color:#92400e;white-space:nowrap">RM '+total.toFixed(2)+'</div></div><div style="display:grid;grid-template-columns:1fr 1fr 48px;gap:5px"><div><div style="font-size:9px;color:#9ca3af">Check in</div><div style="font-size:10px;color:#374151;font-weight:600">'+fmtDateShort(r.start_date)+'</div></div><div><div style="font-size:9px;color:#9ca3af">Check out</div><div style="font-size:10px;color:#374151;font-weight:600">'+fmtDateShort(r.end_date)+'</div></div><div><div style="font-size:9px;color:#9ca3af">Nights</div><div style="font-size:10px;color:#374151;font-weight:600">'+(r.nights||0)+'</div></div></div></div>';
     }).join(''):'<div style="font-size:11px;color:#9ca3af;padding-top:6px">No reservation details for this unit/month</div>';
     rhtml+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px">📅 Bookings This Month</div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Reservations</span><span style="font-size:12px;font-weight:600">'+bookingCount+'</span></div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Sales</span><span style="font-size:12px;font-weight:600">RM '+bookingRevenue.toFixed(2)+'</span></div><div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px dashed #fde68a;margin-top:4px"><span style="font-size:11px;color:#6b7280">Homestay Profit</span><span style="font-size:11px;font-weight:600">RM '+homestayProfit.toFixed(2)+'</span></div><div style="font-size:11px;font-weight:700;color:#92400e;border-top:1px dashed #fde68a;margin-top:7px;padding-top:7px">Reservation Details</div>'+resDetailHtml+'</div>';
-    rhtml+='<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#065f46;background:#d1fae5;padding:6px 10px;border-radius:8px;margin-bottom:6px">Expenses</div>'+rptRows(sharedExpenseRows)+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#065f46;border-top:2px solid #d1fae5;margin-top:4px"><span>Subtotal Expenses</span><span>RM '+subtotalExpenses.toFixed(2)+'</span></div></div>';
+    rhtml+='<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#065f46;background:#d1fae5;padding:6px 10px;border-radius:8px;margin-bottom:6px">Expenses</div>'+legacyNote+rptRows(sharedExpenseRows)+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#065f46;border-top:2px solid #d1fae5;margin-top:4px"><span>Subtotal Expenses</span><span>RM '+subtotalExpenses.toFixed(2)+'</span></div></div>';
     rhtml+='<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#1d4ed8;background:#dbeafe;padding:6px 10px;border-radius:8px;margin-bottom:6px">Owner Expenses</div>'+rptRows(ownerCl)+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#1d4ed8;border-top:2px solid #dbeafe;margin-top:4px"><span>Total Owner Expenses</span><span>RM '+ownerExpensesTotal.toFixed(2)+'</span></div></div>';
     if(operatorCl.length>0){rhtml+='<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#92400e;background:#fef3c7;padding:6px 10px;border-radius:8px;margin-bottom:6px">Operator Expenses <span style="font-size:9px;font-weight:400;opacity:.7">(not in PDF)</span></div>'+rptRows(operatorCl)+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#92400e;border-top:2px solid #fef3c7;margin-top:4px"><span>Subtotal Operator</span><span>RM '+stOp.toFixed(2)+'</span></div></div>';}
     rhtml+='<div style="background:#111;border-radius:10px;padding:12px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:12px;font-weight:700;color:#d1fae5">HOMESTAY MANAGEMENT FEE</span><span style="font-size:14px;font-weight:800;color:#d1fae5">RM '+managementFee.toFixed(2)+'</span></div><div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(255,255,255,.18);padding-top:7px"><span style="font-size:13px;font-weight:700;color:#fff">OWNER PROFIT</span><span style="font-size:16px;font-weight:800;color:#fff">RM '+ownerProfit.toFixed(2)+'</span></div></div>';
