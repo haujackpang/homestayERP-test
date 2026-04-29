@@ -1483,7 +1483,7 @@ function claimListClaims(list){
   return list.filter(function(c){return !isPaidOut(c);});
 }
 function paidOutHistoryClaims(list){
-  return list.filter(function(c){return c.status==='Claimed';});
+  return list.filter(function(c){return isPaidOut(c);});
 }
 function unitExpenseClaims(list){
   return list.filter(function(c){return c.status!=='Draft';});
@@ -1523,6 +1523,15 @@ function claimListPager(listKey,total,page){
   var prevBtn='<button class="pbtn btn-o" style="width:auto;padding:7px 12px;'+(prevDisabled?'opacity:.45;cursor:not-allowed;':'')+'" onclick="'+(prevDisabled?'':'setClaimListPage(\''+listKey+'\','+(page-1)+')')+'"'+(prevDisabled?' disabled':'')+'>Back</button>';
   var nextBtn='<button class="pbtn btn-o" style="width:auto;padding:7px 12px;'+(nextDisabled?'opacity:.45;cursor:not-allowed;':'')+'" onclick="'+(nextDisabled?'':'setClaimListPage(\''+listKey+'\','+(page+1)+')')+'"'+(nextDisabled?' disabled':'')+'>Next</button>';
   return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px"><span style="font-size:11px;color:#6b7280">Page '+page+' of '+totalPages+'</span><div style="display:flex;gap:8px">'+prevBtn+nextBtn+'</div></div>';
+}
+function claimWorkspaceTabs(active){
+  var tabs=R==='admin'
+    ?[['submit','Submit',"ss('mgrNewClaim','adminList')"],['active','Active',"ss('adminList','adminDash')"],['history','History',"ss('adminHistory','adminList')"]]
+    :[['submit','Submit',"ss('newClaim','empList')"],['active','Active',"ss('empList','empHome')"],['history','History',"ss('empHistory','empList')"]];
+  return '<div class="tab-bar" style="margin-bottom:2px">'+tabs.map(function(x){return'<div class="tab-opt'+(active===x[0]?' on':'')+'" onclick="'+x[2]+'">'+x[1]+'</div>';}).join('')+'</div>';
+}
+function claimWorkspaceShell(active,html){
+  return html.replace('<div class="scr">','<div class="scr">'+claimWorkspaceTabs(active));
 }
 
 // ===== ASYNC ACTIONS =====
@@ -1780,9 +1789,9 @@ async function submitMgrClaim(){
       return;
     }
     addClaimLocal(nc);
-    hydrateClaimAttachmentUrls([nc]).then(function(){if(S==='adminDash'||S==='adminList')render();});
+    hydrateClaimAttachmentUrls([nc]).then(function(){if(S==='adminDash'||S==='adminList'||S==='adminHistory')render();});
     toast(isCompany?'Recorded as Company-Paid':'Auto-approved for '+mgrFormEmp);
-    aiResult=null;mgrFormPayType='employee';mgrFormEmp=myName();ss('adminDash');
+    aiResult=null;mgrFormPayType='employee';mgrFormEmp=myName();ss(isCompany?'adminHistory':'adminList','adminDash');
     refreshClaimsInBackground();
   }catch(e){
     console.error(e);
@@ -1944,16 +1953,18 @@ function render(){
 
   function empNav(a){
     nav.style.display='flex';
-    var its=[['home','⊞','Home',"ss('empHome')"],['claims','☰','Claims',"ss('empList','empHome')"],['hist','↺','History',"ss('empHistory','empHome')"],['new','＋','New',"ss('newClaim','empHome')"]];
+    if(a==='hist'||a==='new')a='claims';
+    var its=[['home','⊞','Home',"ss('empHome')"],['claims','☰','Claims',"ss('empList','empHome')"]];
     nav.innerHTML=its.map(function(x){return'<div class="ni'+(a===x[0]?' on':'')+'" onclick="'+x[3]+'"><span class="ni-ic" style="'+(x[0]==='new'?'color:#2563eb;font-size:16px;':'')+'">'+x[1]+'</span>'+x[2]+'</div>';}).join('');
     lo.style.display='block';
   }
   function adminNav(a){
     nav.style.display='flex';
+    if(!isSystemAdmin&&(a==='list'||a==='hist'||a==='sub'))a='claims';
     if(isSystemAdmin){
       var its=[['users','👥','Users',"openUsers()"],['emps','👥','Staff',"ss('adminEmployees','adminUsers')"],['units','🏘','Units',"ss('adminUnits','adminUsers')"],['logs','🪵','Logs',"openErrorLogs()"]];
     } else {
-      var its=[['dash','⊞','Dash',"ss('adminDash')"],['list','☰','Claims',"ss('adminList','adminDash')"],['hist','↺','History',"ss('adminHistory','adminDash')"],['pay','💳','Pay',"ss('adminPay','adminDash')"],['sub','＋','Submit',"ss('mgrNewClaim','adminDash')"],['report','📊','Report',"ss('reportHome','adminDash')"]];
+      var its=[['dash','⊞','Dash',"ss('adminDash')"],['claims','☰','Claims',"ss('adminList','adminDash')"],['pay','💳','Pay',"ss('adminPay','adminDash')"],['report','📊','Report',"ss('reportHome','adminDash')"]];
     }
     nav.innerHTML=its.map(function(x){return'<div class="ni'+(a===x[0]?' on':'')+'" onclick="'+x[3]+'"><span class="ni-ic">'+x[1]+'</span>'+x[2]+'</div>';}).join('');
     lo.style.display='block';
@@ -1983,7 +1994,7 @@ function render(){
     ms.innerHTML='<div class="scr"><div style="background:#f9fafb;border-radius:12px;padding:9px;border:1px solid #e5e7eb;display:flex;flex-direction:column;gap:5px"><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Month</div><div class="flt-row">'+months.map(function(m){return'<span class="chip'+(empDashMonth===m?' on':'')+'" onclick="edm(\''+m+'\')">'+(m==='All'?'All':MONTHS[m])+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Year</div><div class="flt-row">'+years.map(function(y){return'<span class="chip'+(empDashYear===y?' on':'')+'" onclick="edy(\''+y+'\')">'+y+'</span>';}).join('')+'</div></div></div><div class="hero" style="background:#dbeafe"><div style="font-size:11px;color:#1d4ed8">Total submitted · '+periodLabel+'</div><div style="font-size:26px;font-weight:700;color:#1d4ed8">RM '+total.toFixed(2)+'</div><div style="font-size:11px;color:#1d4ed8;margin-top:2px;opacity:.8">'+fm.filter(function(c){return dstat(c.status)!=='Draft';}).length+' claims</div></div><div class="sgrid" style="grid-template-columns:repeat(5,minmax(0,1fr))">'+['Submitted','Approved','Rejected','Draft','Claimed'].map(function(s,i){var cols=['#1d4ed8','#065f46','#991b1b','#374151','#92400e'];return'<div class="sbox"><div class="snum" style="color:'+cols[i]+'">'+sc[s]+'</div><div class="slbl">'+s+'</div></div>';}).join('')+'</div><button class="pbtn btn-p" onclick="ss(\'newClaim\',\'empHome\')">+ New Claim</button><div><div class="sec-hdr"><span class="sec-t">Recent claims</span><span class="va" onclick="ss(\'empList\',\'empHome\')">View all →</span></div><div style="margin-top:6px">'+(recent||'<div style="text-align:center;padding:12px;font-size:12px;color:#6b7280">No claims for this period</div>')+'</div></div></div>';
   }
   else if(S==='empList'){
-    tbt_el.textContent='My Claims';bb_el.style.display='block';empNav('claims');
+    tbt_el.textContent='Expense Claims';bb_el.style.display='block';empNav('claims');
     var my=claimListClaims(claims).filter(function(c){return c.emp===myName()&&c.payType==='employee';});
     var months=['All'].concat(Object.keys(MONTHS));var years=['All'].concat(YEARS);
     var statuses=['All','Submitted','Approved','Rejected','Draft'];
@@ -1996,9 +2007,10 @@ function render(){
     var total=fc.reduce(function(s,c){return s+c.amount;},0);
     var cards=pageClaims.map(function(c){var i=claims.indexOf(c);return ccCard(c,'viewClaim('+i+',\'empList\')');}).join('');
     ms.innerHTML='<div class="scr"><div style="background:#f9fafb;border-radius:12px;padding:10px;border:1px solid #e5e7eb;display:flex;flex-direction:column;gap:6px"><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Status</div><div class="flt-row">'+statuses.map(function(s){return'<span class="chip'+(empFltStatus===s?' on':'')+'" onclick="ec(\''+s+'\')">'+s+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Month</div><div class="flt-row">'+months.map(function(m){return'<span class="chip'+(empFltMonth===m?' on':'')+'" onclick="em(\''+m+'\')">'+(m==='All'?'All':MONTHS[m])+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Year</div><div class="flt-row">'+years.map(function(y){return'<span class="chip'+(empFltYear===y?' on':'')+'" onclick="ey(\''+y+'\')">'+y+'</span>';}).join('')+'</div></div></div><div style="background:#f9fafb;border-radius:8px;padding:8px 10px;display:flex;justify-content:space-between"><span style="font-size:12px;color:#6b7280">'+fc.length+' claim(s)</span><span style="font-size:13px;font-weight:600;color:#111">RM '+total.toFixed(2)+'</span></div>'+(cards||'<div style="text-align:center;padding:16px;font-size:12px;color:#6b7280">No claims match</div>')+(fc.length?claimListPager('emp',fc.length,empListPage):'')+'</div>';
+    ms.innerHTML=claimWorkspaceShell('active',ms.innerHTML);
   }
   else if(S==='empHistory'){
-    tbt_el.textContent='Payout History';bb_el.style.display='block';empNav('hist');
+    tbt_el.textContent='Expense Claims';bb_el.style.display='block';empNav('hist');
     var my=paidOutHistoryClaims(claims).filter(function(c){return c.emp===myName()&&c.payType==='employee';});
     var months=['All'].concat(Object.keys(MONTHS));var years=['All'].concat(YEARS);
     function ehm(v){empHistMonth=v;empHistoryPage=1;render();}function ehy(v){empHistYear=v;empHistoryPage=1;render();}
@@ -2009,6 +2021,7 @@ function render(){
     var total=fc.reduce(function(s,c){return s+c.amount;},0);
     var cards=pageClaims.map(function(c){var i=claims.indexOf(c);return ccCard(c,'viewClaim('+i+',\'empHistory\')');}).join('');
     ms.innerHTML='<div class="scr"><div class="info-box" style="background:#d1fae5"><div style="font-size:11px;color:#065f46"><span style="font-weight:600">Paid-out claims only.</span> Active unpaid claims stay in My Claims.</div></div><div style="background:#f9fafb;border-radius:12px;padding:10px;border:1px solid #e5e7eb;display:flex;flex-direction:column;gap:6px"><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Month</div><div class="flt-row">'+months.map(function(m){return'<span class="chip'+(empHistMonth===m?' on':'')+'" onclick="ehm(\''+m+'\')">'+(m==='All'?'All':MONTHS[m])+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Year</div><div class="flt-row">'+years.map(function(y){return'<span class="chip'+(empHistYear===y?' on':'')+'" onclick="ehy(\''+y+'\')">'+y+'</span>';}).join('')+'</div></div></div><div style="background:#f9fafb;border-radius:8px;padding:8px 10px;display:flex;justify-content:space-between"><span style="font-size:12px;color:#6b7280">'+fc.length+' paid claim(s)</span><span style="font-size:13px;font-weight:600;color:#111">RM '+total.toFixed(2)+'</span></div>'+(cards||'<div style="text-align:center;padding:16px;font-size:12px;color:#6b7280">No payout history</div>')+(fc.length?claimListPager('empHistory',fc.length,empHistoryPage):'')+'</div>';
+    ms.innerHTML=claimWorkspaceShell('history',ms.innerHTML);
   }
   else if(S==='claimDetail'){
     var c=SEL;tbt_el.textContent='Claim Detail';bb_el.style.display='block';empNav(PS==='empHistory'?'hist':'claims');
@@ -2026,7 +2039,7 @@ function render(){
     ms.innerHTML='<div class="scr"><div class="info-box" style="background:#fef3c7"><div style="font-size:11px;color:#92400e"><span style="font-weight:600">Editing '+c.id+'</span> — currently '+dstat(c.status)+'.</div></div><div class="fg"><label class="fl">Description *</label><input class="fi" id="f-desc" value="'+c.desc+'"/></div><div class="tcol"><div class="fg"><label class="fl">Amount (RM) *</label><input class="fi" id="f-amount" type="number" value="'+c.amount+'"/></div><div class="fg"><label class="fl">Date *</label><input class="fi" id="f-date" type="date" value="'+c.date+'"/></div></div><div id="rbox">'+receiptBox(c.receiptRefs)+'</div>'+(c.status==='Draft'?'<div class="arow"><button class="pbtn btn-o" onclick="saveEmpEdit()">Save Draft</button><button class="pbtn btn-p" onclick="submitEmpEdit()">Save & Submit</button></div>':'<div class="arow"><button class="pbtn btn-o" onclick="ss(\'claimDetail\',\'empList\')">Cancel</button><button class="pbtn btn-p" onclick="submitEmpEdit()">Save & Re-submit</button></div>')+'</div>';
   }
   else if(S==='newClaim'){
-    tbt_el.textContent='New Claim';bb_el.style.display='block';empNav('');
+    tbt_el.textContent='Expense Claims';bb_el.style.display='block';empNav('claims');
     var today=new Date().toISOString().slice(0,10);
     var _ld=new Date(parseInt(today.slice(0,4)),parseInt(today.slice(5,7))-2,1);var lastMonth=_ld.getFullYear()+'-'+(_ld.getMonth()+1<10?'0':'')+(_ld.getMonth()+1);
     var catOpts=CATS.map(function(c){return'<option value="'+c+'"'+(aiResult&&aiResult.category===c?' selected':'')+'>'+c+'</option>';}).join('');
@@ -2048,6 +2061,7 @@ function render(){
       // Manual entry fallback
       ms.innerHTML='<div class="scr"><div class="info-box" style="background:#fef3c7"><div style="font-size:11px;color:#92400e"><span style="font-weight:600">Manual entry</span> — AI receipt scan is currently disabled.</div></div><div class="fg"><label class="fl">Description *</label><input class="fi" id="f-desc" placeholder="e.g. Electricity Bill - INV12345"/></div><div class="tcol"><div class="fg"><label class="fl">Amount (RM) *</label><input class="fi" id="f-amount" type="number" placeholder="0.00"/></div><div class="fg"><label class="fl">Date *</label><input class="fi" id="f-date" type="date" value="'+today+'"/></div></div><div id="rbox">'+receiptBox('')+'</div><div class="arow"><button class="pbtn btn-o" onclick="submitNewClaim(true)"'+(claimSubmitBusy?' disabled':'')+'>'+(claimSubmitBusy?'Saving...':'Save Draft')+'</button><button class="pbtn btn-p" onclick="submitNewClaim(false)"'+(claimSubmitBusy?' disabled':'')+'>'+(claimSubmitBusy?'Submitting...':'Submit Claim')+'</button></div></div>';
     }
+    ms.innerHTML=claimWorkspaceShell('submit',ms.innerHTML);
   }
   else if(S==='adminDash'){
     if(isSystemAdmin){ss('adminUsers','adminUsers');return;}
@@ -2082,7 +2096,7 @@ function render(){
     ms.innerHTML='<div class="scr"><div style="background:#f9fafb;border-radius:12px;padding:9px;border:1px solid #e5e7eb;display:flex;flex-direction:column;gap:5px"><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Month</div><div class="flt-row">'+months.map(function(m){return'<span class="chip'+(dashFltMonth===m?' on':'')+'" onclick="dm(\''+m+'\')">'+(m==='All'?'All':MONTHS[m])+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Year</div><div class="flt-row">'+years.map(function(y){return'<span class="chip'+(dashFltYear===y?' on':'')+'" onclick="dy(\''+y+'\')">'+y+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Unit</div><div class="flt-row">'+unitOpts.map(function(u){return'<span class="chip'+((dashFltUnit===u||(dashFltUnit==='All'&&u==='All Units'))?' on':'')+'" onclick="du(\''+u+'\')">'+u+'</span>';}).join('')+'</div></div></div><div class="sgrid" style="grid-template-columns:1fr 1fr;gap:7px"><div class="hero" style="background:#d1fae5"><div style="font-size:11px;color:#065f46">Reimbursable</div><div style="font-size:20px;font-weight:700;color:#065f46">RM '+apprTotal.toFixed(2)+'</div><div style="font-size:11px;color:#065f46;opacity:.8;margin-top:2px">'+claimedN+' claimed</div></div><div class="hero" style="background:#f9fafb;border:1px solid #e5e7eb"><div style="font-size:11px;color:#6b7280">Company paid</div><div style="font-size:20px;font-weight:700;color:#111">RM '+coTotal.toFixed(2)+'</div><div style="font-size:11px;color:#6b7280;margin-top:2px">No reimbursement</div></div></div><div class="sgrid" style="grid-template-columns:repeat(3,minmax(0,1fr))"><div class="sbox" onclick="ss(\'adminList\',\'adminDash\')"><div class="snum" style="color:#92400e">'+pending+'</div><div class="slbl">Pending</div></div><div class="sbox"><div class="snum" style="color:#065f46">'+base.filter(function(c){return c.status==='Approved';}).length+'</div><div class="slbl">Approved</div></div><div class="sbox" onclick="ss(\'adminHistory\',\'adminDash\')"><div class="snum" style="color:#92400e">'+claimedN+'</div><div class="slbl">Claimed</div></div></div>'+fxHtml+'<div style="display:flex;gap:8px;margin-bottom:12px">'+(isSystemAdmin?'<div class="sbox" onclick="openUsers()" style="cursor:pointer;background:#dbeafe;border-color:#93c5fd;flex:1;display:flex;align-items:center;gap:10px;padding:11px 14px"><span style="font-size:18px">👥</span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:#1d4ed8">Manage Users</div></div></div>':'')+'</div>'+(pendCards?'<div><div class="sec-hdr"><span class="sec-t">Pending approval</span><span class="va" onclick="ss(\'adminList\',\'adminDash\')">All →</span></div><div style="margin-top:6px">'+pendCards+'</div></div>':'<div style="text-align:center;padding:8px;font-size:12px;color:#6b7280">No pending claims ✓</div>')+(sorted.length?'<div><div class="sec-t" style="margin-bottom:6px">Spending by category</div><div style="background:#f9fafb;border-radius:12px;padding:10px;border:1px solid #e5e7eb">'+bars+'</div></div>':'')+'</div>';
   }
   else if(S==='adminList'){
-    tbt_el.textContent='All Claims';bb_el.style.display='block';adminNav('list');
+    tbt_el.textContent='Expense Claims';bb_el.style.display='block';adminNav('list');
     var statuses=['All','Submitted','Approved','Rejected','Draft','Auto-Approved'];
     if(statuses.indexOf(fltStatus)<0)fltStatus='All';
     var months=['All'].concat(Object.keys(MONTHS));var years=['All'].concat(YEARS);var empList=['All'].concat(EMPS);
@@ -2094,9 +2108,10 @@ function render(){
     var total=fc.reduce(function(s,c){return s+c.amount;},0);
     var cards=pageClaims.map(function(c){var i=claims.indexOf(c);return ccCard(c,'adminView('+i+',\'adminList\')');}).join('');
     ms.innerHTML='<div class="scr"><div style="background:#f9fafb;border-radius:12px;padding:9px;border:1px solid #e5e7eb;display:flex;flex-direction:column;gap:5px"><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Status</div><div class="flt-row">'+statuses.map(function(s){return'<span class="chip'+(fltStatus===s?' on':'')+'" onclick="as(\''+s+'\')">'+s+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Month</div><div class="flt-row">'+months.map(function(m){return'<span class="chip'+(fltMonth===m?' on':'')+'" onclick="am(\''+m+'\')">'+(m==='All'?'All':MONTHS[m])+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Year</div><div class="flt-row">'+years.map(function(y){return'<span class="chip'+(fltYear===y?' on':'')+'" onclick="ay(\''+y+'\')">'+y+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Employee</div><div class="flt-row">'+empList.map(function(e){return'<span class="chip'+(fltEmp===e?' on':'')+'" onclick="ae(\''+e+'\')">'+(e==='All'?'All':e.split(' ')[0])+'</span>';}).join('')+'</div></div></div><div style="background:#f9fafb;border-radius:8px;padding:8px 10px;display:flex;justify-content:space-between"><span style="font-size:12px;color:#6b7280">'+fc.length+' claim(s)</span><span style="font-size:13px;font-weight:600;color:#111">RM '+total.toFixed(2)+'</span></div>'+(cards||'<div style="text-align:center;padding:16px;font-size:12px;color:#6b7280">No claims match</div>')+(fc.length?claimListPager('admin',fc.length,adminListPage):'')+'</div>';
+    ms.innerHTML=claimWorkspaceShell('active',ms.innerHTML);
   }
   else if(S==='adminHistory'){
-    tbt_el.textContent='Payout History';bb_el.style.display='block';adminNav('hist');
+    tbt_el.textContent='Expense Claims';bb_el.style.display='block';adminNav('hist');
     var months=['All'].concat(Object.keys(MONTHS));var years=['All'].concat(YEARS);var empList=['All'].concat(EMPS);
     function ahm(v){adminHistMonth=v;adminHistoryPage=1;render();}function ahy(v){adminHistYear=v;adminHistoryPage=1;render();}function ahe(v){adminHistEmp=v;adminHistoryPage=1;render();}
     window.ahm=ahm;window.ahy=ahy;window.ahe=ahe;
@@ -2106,6 +2121,8 @@ function render(){
     var total=fc.reduce(function(s,c){return s+c.amount;},0);
     var cards=pageClaims.map(function(c){var i=claims.indexOf(c);return ccCard(c,'adminView('+i+',\'adminHistory\')');}).join('');
     ms.innerHTML='<div class="scr"><div class="info-box" style="background:#d1fae5"><div style="font-size:11px;color:#065f46"><span style="font-weight:600">Claimed payout history.</span> Active unpaid claims stay in All Claims.</div></div><div style="background:#f9fafb;border-radius:12px;padding:9px;border:1px solid #e5e7eb;display:flex;flex-direction:column;gap:5px"><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Month</div><div class="flt-row">'+months.map(function(m){return'<span class="chip'+(adminHistMonth===m?' on':'')+'" onclick="ahm(\''+m+'\')">'+(m==='All'?'All':MONTHS[m])+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Year</div><div class="flt-row">'+years.map(function(y){return'<span class="chip'+(adminHistYear===y?' on':'')+'" onclick="ahy(\''+y+'\')">'+y+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Employee</div><div class="flt-row">'+empList.map(function(e){return'<span class="chip'+(adminHistEmp===e?' on':'')+'" onclick="ahe(\''+e+'\')">'+(e==='All'?'All':e.split(' ')[0])+'</span>';}).join('')+'</div></div></div><div style="background:#f9fafb;border-radius:8px;padding:8px 10px;display:flex;justify-content:space-between"><span style="font-size:12px;color:#6b7280">'+fc.length+' paid claim(s)</span><span style="font-size:13px;font-weight:600;color:#111">RM '+total.toFixed(2)+'</span></div>'+(cards||'<div style="text-align:center;padding:16px;font-size:12px;color:#6b7280">No payout history</div>')+(fc.length?claimListPager('adminHistory',fc.length,adminHistoryPage):'')+'</div>';
+    ms.innerHTML=claimWorkspaceShell('history',ms.innerHTML);
+    ms.innerHTML=ms.innerHTML.replace('Claimed payout history.','Paid-out and company-paid history.').replace(' paid claim(s)',' history record(s)');
   }
   else if(S==='adminReview'){
     var c=SEL;tbt_el.textContent='Review Claim';bb_el.style.display='block';adminNav(PS==='adminHistory'?'hist':(PS==='unitExpenses'?'report':'list'));
@@ -2269,7 +2286,7 @@ function render(){
     ms.innerHTML='<div class="scr">'+(resetPasswordError?'<div style="background:#fee2e2;color:#991b1b;font-size:12px;padding:8px 12px;border-radius:8px;text-align:center">'+resetPasswordError+'</div>':'')+'<div class="info-box" style="background:#fef3c7"><div style="font-size:11px;color:#92400e"><span style="font-weight:600">Resetting:</span> '+rp.full_name+' (@'+rpUsername+')</div><div style="font-size:11px;color:#92400e;margin-top:3px">This updates the login password only.</div></div><div class="fg"><label class="fl">New password *</label><input class="fi" id="rp-pw" type="password" placeholder="Min 6 characters" autocomplete="new-password" value="'+esc(resetPasswordDraft1)+'" oninput="resetPasswordDraft1=this.value"/></div><div class="fg"><label class="fl">Confirm password *</label><input class="fi" id="rp-pw2" type="password" placeholder="Re-enter the new password" autocomplete="new-password" value="'+esc(resetPasswordDraft2)+'" oninput="resetPasswordDraft2=this.value"/></div><button class="pbtn btn-s" onclick="submitResetPassword()">Update Password</button><button class="pbtn btn-o" style="margin-top:6px" onclick="resetPasswordUser=null;resetPasswordError=\'\';resetPasswordDraft1=\'\';resetPasswordDraft2=\'\';ss(\'adminUsers\',adminHomeScreen())">Cancel</button></div>';
   }
   else if(S==='mgrNewClaim'){
-    tbt_el.textContent='Submit Expense';bb_el.style.display='block';adminNav('sub');
+    tbt_el.textContent='Expense Claims';bb_el.style.display='block';adminNav('sub');
     var isCompany=mgrFormPayType==='company';
       var mySelf=myName();var empDropList=(!isSystemAdmin&&ACTIVE_EMPS.indexOf(mySelf)<0)?[mySelf].concat(ACTIVE_EMPS):ACTIVE_EMPS;
     var empOpts=empDropList.map(function(e){return'<option value="'+e+'"'+(mgrFormEmp===e?' selected':'')+'>'+e+(e===mySelf?' (self)':'')+'</option>';}).join('');
@@ -2280,6 +2297,7 @@ function render(){
     var scanBtn='<div class="info-box" style="background:#fef3c7"><div style="font-size:11px;color:#92400e"><span style="font-weight:600">AI receipt scan is currently disabled.</span> Please submit expenses manually.</div></div>';
     var mgrAiLoading=aiAnalyzing?'<div style="display:flex;align-items:center;gap:8px;padding:10px;background:#eff6ff;border-radius:10px;border:1px solid #93c5fd"><div class="ai-spinner" style="width:18px;height:18px;border-width:2px"></div><span style="font-size:12px;color:#1d4ed8">Analyzing receipt...</span></div>':'';
     ms.innerHTML='<div class="scr"><div style="display:flex;flex-direction:column;gap:7px"><div class="ptype-card'+(isCompany?'':' on')+'" onclick="togglePayType(\'employee\')"><div style="font-size:20px">👤</div><div><div class="ptype-title">Employee paid</div><div class="ptype-desc">Needs reimbursement — auto-approved</div></div></div><div class="ptype-card'+(isCompany?' on':'')+'" onclick="togglePayType(\'company\')"><div style="font-size:20px">🏢</div><div><div class="ptype-title">Company paid</div><div class="ptype-desc">No reimbursement — tracking only</div></div></div></div>'+scanBtn+(isCompany?'<div class="info-box" style="background:#d1fae5"><div style="font-size:11px;color:#065f46"><span style="font-weight:600">Company-paid:</span> No employee assigned.</div></div>':'<div class="fg"><label class="fl">Submit for employee *</label><select class="fi" id="f-emp" onchange="mgrFormEmp=this.value">'+empOpts+'</select></div>')+'<div class="fg"><label class="fl">Category *</label><select class="fi" id="f-cat">'+catOpts+'</select></div><div class="fg"><label class="fl">Unit / location *</label><select class="fi" id="f-unit" onchange="toggleChargeTo(this.value,\x27f-charge-wrap\x27)"><option value="">— Select unit —</option>'+unitOpts+'</select></div><div class="fg"><label class="fl">Description *</label><input class="fi" id="f-desc" placeholder="e.g. Electricity Bill - INV12345"/></div><div class="tcol"><div class="fg"><label class="fl">Amount (RM) *</label><input class="fi" id="f-amount" type="number" placeholder="0.00"/></div><div class="fg"><label class="fl">Date *</label><input class="fi" id="f-date" type="date" value="'+today+'"/></div></div>'+expMonthSelect(lastMonth)+'<div id="f-charge-wrap"><div class="fg"><label class="fl">Charge to *</label><select class="fi" id="f-charged"><option value="">— Select —</option><option value="Owner">Owner</option><option value="Operator">Operator</option><option value="Both">Both</option></select></div></div><div id="rbox">'+receiptBox('')+'</div><button class="pbtn '+(isCompany?'btn-s':'btn-p')+'" onclick="submitMgrClaim()"'+(mgrSubmitBusy?' disabled':'')+'>'+(mgrSubmitBusy?'Submitting...':(isCompany?'Record as Company-Paid':'Submit (Auto-Approved)'))+'</button></div>';
+    ms.innerHTML=claimWorkspaceShell('submit',ms.innerHTML);
   }
   else if(S==='errorLogs'){
     if(!isSystemAdmin){toast('Only admin can access logs');ss(R==='admin'?'adminDash':'empHome');return;}
