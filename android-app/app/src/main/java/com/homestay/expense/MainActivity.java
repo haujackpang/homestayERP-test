@@ -78,10 +78,16 @@ public class MainActivity extends Activity {
                 });
                 intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params == null || params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
 
-                Intent cameraIntent = params != null && params.isCaptureEnabled() ? createImageCaptureIntent() : null;
-                Intent chooser = params != null && params.isCaptureEnabled() && cameraIntent != null
-                    ? cameraIntent
-                    : Intent.createChooser(intent, "Select receipts");
+                Intent cameraIntent = acceptsImages(params) ? createImageCaptureIntent() : null;
+                Intent chooser;
+                if (params != null && params.isCaptureEnabled() && cameraIntent != null) {
+                    chooser = cameraIntent;
+                } else {
+                    chooser = Intent.createChooser(intent, "Select receipts");
+                    if (cameraIntent != null) {
+                        chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{cameraIntent});
+                    }
+                }
                 try {
                     startActivityForResult(chooser, FILE_CHOOSER_CODE);
                 } catch (Exception e) {
@@ -108,6 +114,16 @@ public class MainActivity extends Activity {
             cameraImageUri = null;
             return null;
         }
+    }
+
+    private boolean acceptsImages(WebChromeClient.FileChooserParams params) {
+        if (params == null) return true;
+        String[] types = params.getAcceptTypes();
+        if (types == null || types.length == 0) return true;
+        for (String type : types) {
+            if (type == null || type.length() == 0 || type.startsWith("image/")) return true;
+        }
+        return false;
     }
 
     @Override

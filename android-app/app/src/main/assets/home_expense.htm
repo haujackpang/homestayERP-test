@@ -881,34 +881,19 @@ function pickerActionsHtml(actions){
   return '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">'+actions.join('')+'</div>';
 }
 function receiptPickerActionsHtml(hasFiles){
-  return pickerActionsHtml([
-    pickerActionHtml('pickReceiptCamera()','Take Photo','Camera only','&#128247;'),
-    pickerActionHtml('pickReceiptUpload()',(hasFiles?'Upload More':'Upload Photo/File'),'Photos, PDF, DOC or DOCX','&#128206;')
-  ]);
+  return pickerActionHtml('pickReceiptUpload()',(hasFiles?'Upload More':'Upload Photo/File'),'Take photo, photos, PDF, DOC or DOCX','&#128206;');
 }
 function managerAttachmentPickerActionsHtml(hasFiles){
-  return pickerActionsHtml([
-    pickerActionHtml('pickMgrSlipCamera()','Take Photo','Camera only','&#128247;'),
-    pickerActionHtml('pickMgrSlip()',(hasFiles?'Upload More':'Upload Photo/PDF'),'Photos or PDF','&#128206;')
-  ]);
+  return pickerActionHtml('pickMgrSlip()',(hasFiles?'Upload More':'Upload Attachment'),'Take photo, photos or PDF','&#128206;');
 }
 function slipPickerActionsHtml(hasFiles){
-  return pickerActionsHtml([
-    pickerActionHtml('pickSlipCamera()','Take Slip Photo','Camera only','&#128247;'),
-    pickerActionHtml('pickSlipUpload()',(hasFiles?'Upload More':'Upload Slip/PDF'),'Photos or PDF','&#128206;')
-  ]);
+  return pickerActionHtml('pickSlipUpload()',(hasFiles?'Upload More':'Upload Slip/PDF'),'Take photo, photos or PDF','&#128206;');
 }
 function aiPickerActionsHtml(){
-  return pickerActionsHtml([
-    pickerActionHtml('pickReceiptForAICamera()','Take Photo','Camera only','&#128247;'),
-    pickerActionHtml('pickReceiptForAIUpload()','Upload Image/PDF','Photo library or files','&#128206;')
-  ]);
+  return pickerActionHtml('pickReceiptForAIUpload()','Upload Image/PDF','Take photo, photo library or files','&#128206;');
 }
 function mgrAiPickerActionsHtml(){
-  return pickerActionsHtml([
-    pickerActionHtml('mgrScanReceipt(\'camera\')','Take Photo','Camera only','&#128247;'),
-    pickerActionHtml('mgrScanReceipt(\'upload\')','Upload Image/PDF','Photo library or files','&#128206;')
-  ]);
+  return pickerActionHtml('mgrScanReceipt(\'upload\')','Upload Image/PDF','Take photo, photo library or files','&#128206;');
 }
 function getCategoryPrefix(cat){
   if(cat==='Water Bill')return '[WB]';

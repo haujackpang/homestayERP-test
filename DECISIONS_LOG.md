@@ -1,10 +1,10 @@
 # Decisions Log
 
-## 2026-04-30: Split Mobile Upload From Camera Capture
-Decision: Use explicit `Take Photo` and `Upload Photo/File` actions for receipt, manager attachment, payout slip, and AI scan picker paths.
+## 2026-04-30: Keep Mobile Upload As One Visible Attachment Button
+Decision: Use one visible upload/attachment button for receipt, manager attachment, payout slip, and AI scan picker paths, with no `capture` attribute on that normal upload action.
 
 Reason:
-iOS Safari can treat `capture="environment"` as a camera-first/camera-only hint, which blocked users from choosing existing photos or files. Normal upload actions must omit `capture`, while camera-only actions may set it. The Android wrapper mirrors this by supporting camera capture for capture-mode inputs and document/gallery selection for upload-mode inputs.
+iOS Safari can treat `capture="environment"` as a camera-first/camera-only hint, which blocked users from choosing existing photos or files. A single no-capture upload button keeps the UI compact while letting the system picker offer camera, photo library, and files. The Android wrapper mirrors this by including camera capture in the same chooser as document/gallery selection.
 
 ## 2026-04-28: Show Existing Claim For Exact Duplicate Expense
 Decision: Keep the DB duplicate guard for exact active duplicates, but add a frontend pre-check that finds the matching loaded claim and shows the existing claim ID before upload/insert.

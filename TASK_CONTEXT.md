@@ -10,8 +10,8 @@ Current focus:
 6. Keep the rollout test-first; use the focused script `supabase-claims-manager-access.sql` only in environments where manager claim access still follows admin-only policies.
 
 2026-04-30 update (implemented locally, test-first):
-1. iOS/mobile upload picker now separates `Take Photo` from `Upload Photo/File` so Safari does not force camera-only behavior for normal receipt uploads.
-2. The shared file picker resets `accept`, `multiple`, and `capture` before every open; only camera-specific actions set `capture='environment'`.
+1. iOS/mobile upload picker now uses one visible `Upload Photo/File` style button so users can choose camera, photo library, or files from the system picker without a two-button attachment layout.
+2. The shared file picker resets `accept`, `multiple`, and `capture` before every open; normal visible upload actions do not set `capture='environment'`.
 3. The Android wrapper asset was synced from `home_expense.htm`, and the WebView file chooser now supports camera capture through a FileProvider path for camera-mode inputs.
 4. No Supabase schema, Edge Function, or live deployment changes were made for this upload-picker fix.
 
