@@ -1709,7 +1709,8 @@ async function exportReportPDF(){
   var APPROVED_STATUSES=['Approved','Claimed','Auto-Approved','Company-Paid'];
   var ym=rptYear+'-'+rptMonth;
   var rptAliases=reportUnitAliases(rptUnit);
-  var rc=claims.filter(function(c){return rptAliases.indexOf(c.unit)>=0&&APPROVED_STATUSES.indexOf(c.status)>=0&&(c.expMonth||c.date.slice(0,7))===ym;});
+  var rcAll=claims.filter(function(c){return rptAliases.indexOf(c.unit)>=0&&APPROVED_STATUSES.indexOf(c.status)>=0&&(c.expMonth||c.date.slice(0,7))===ym;});
+  var rc=rcAll.filter(function(c){return c.unit===rptUnit;});
   var shared=rc.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Both';});
   var ownerCl=rc.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Owner';});
   var cfg=unitConfig.filter(function(x){return x.unit_name===rptUnit;})[0]||{};
@@ -2265,11 +2266,13 @@ function render(){
     var APPROVED_STATUSES=['Approved','Claimed','Auto-Approved','Company-Paid'];
     var ym=rptYear+'-'+rptMonth;
     var rptAliases=reportUnitAliases(rptUnit);
-    var rptClaims=claims.filter(function(c){return rptAliases.indexOf(c.unit)>=0&&APPROVED_STATUSES.indexOf(c.status)>=0&&(c.expMonth||c.date.slice(0,7))===ym;});
-    var sharedCl=rptClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Both';});
-    var ownerCl=rptClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Owner';});
-    var operatorCl=rptClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Operator';});
-    var legacyChargeToCount=rptClaims.filter(function(c){return !c.chargedTo&&c.unit!=='MP Office';}).length;
+    var rptClaimsAll=claims.filter(function(c){return rptAliases.indexOf(c.unit)>=0&&APPROVED_STATUSES.indexOf(c.status)>=0&&(c.expMonth||c.date.slice(0,7))===ym;});
+    var rptPrimaryClaims=rptClaimsAll.filter(function(c){return c.unit===rptUnit;});
+    var rptAliasClaims=rptClaimsAll.filter(function(c){return c.unit!==rptUnit;});
+    var sharedCl=rptPrimaryClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Both';});
+    var ownerCl=rptPrimaryClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Owner';});
+    var operatorCl=rptPrimaryClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Operator';});
+    var legacyChargeToCount=rptPrimaryClaims.filter(function(c){return !c.chargedTo&&c.unit!=='MP Office';}).length;
     var rptCfg=unitConfig.filter(function(x){return x.unit_name===rptUnit;})[0]||{};
     var ownerLabel=rptCfg.owner_name||'—';
     var monthLabel=MONTHS[rptMonth]+' '+rptYear;
@@ -2312,6 +2315,11 @@ function render(){
     rhtml+='<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#065f46;background:#d1fae5;padding:6px 10px;border-radius:8px;margin-bottom:6px">Expenses</div>'+legacyNote+rptRows(sharedExpenseRows)+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#065f46;border-top:2px solid #d1fae5;margin-top:4px"><span>Subtotal Expenses</span><span>RM '+subtotalExpenses.toFixed(2)+'</span></div></div>';
     rhtml+='<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#1d4ed8;background:#dbeafe;padding:6px 10px;border-radius:8px;margin-bottom:6px">Owner Expenses</div>'+rptRows(ownerCl)+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#1d4ed8;border-top:2px solid #dbeafe;margin-top:4px"><span>Total Owner Expenses</span><span>RM '+ownerExpensesTotal.toFixed(2)+'</span></div></div>';
     if(operatorCl.length>0){rhtml+='<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#92400e;background:#fef3c7;padding:6px 10px;border-radius:8px;margin-bottom:6px">Operator Expenses <span style="font-size:9px;font-weight:400;opacity:.7">(not in PDF)</span></div>'+rptRows(operatorCl)+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#92400e;border-top:2px solid #fef3c7;margin-top:4px"><span>Subtotal Operator</span><span>RM '+stOp.toFixed(2)+'</span></div></div>';}
+    if(rptAliasClaims.length>0){
+      var aliasCards=rptAliasClaims.map(function(c){var i=claims.indexOf(c);return ccCard(c,'adminView('+i+',\\'reportView\\')');}).join('');
+      var aliasNote='<div style="font-size:10px;color:#6b7280;margin:-2px 0 8px 2px">These claims were saved under a different unit label. Edit the claim unit/charge-to to include them in this report.</div>';
+      rhtml+='<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#991b1b;background:#fee2e2;padding:6px 10px;border-radius:8px;margin-bottom:6px">Legacy Unit Claims (not counted)</div>'+aliasNote+aliasCards+'</div>';
+    }
     rhtml+='<div style="background:#111;border-radius:10px;padding:12px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:12px;font-weight:700;color:#d1fae5">HOMESTAY MANAGEMENT FEE</span><span style="font-size:14px;font-weight:800;color:#d1fae5">RM '+managementFee.toFixed(2)+'</span></div><div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(255,255,255,.18);padding-top:7px"><span style="font-size:13px;font-weight:700;color:#fff">OWNER PROFIT</span><span style="font-size:16px;font-weight:800;color:#fff">RM '+ownerProfit.toFixed(2)+'</span></div></div>';
     rhtml+='<button class="pbtn btn-s" onclick="exportReportPDF()">⬇ Export PDF</button></div>';
     ms.innerHTML=rhtml;
