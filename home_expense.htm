@@ -382,7 +382,16 @@ function reportUnitAliases(unitName){
   if(!base)return[];
   var out=[base];
   var m=base.match(/^[A-Za-z]{2,3}\s+(.+)$/);
-  if(m&&m[1])out.push(m[1].trim());
+  var bare=(m&&m[1])?m[1].trim():base;
+  if(bare)out.push(bare);
+  // Include legacy unit strings already saved in claims (e.g. "AR C3706") even if the unit is now inactive.
+  if(claims&&claims.length&&bare){
+    claims.forEach(function(c){
+      var u=String(c.unit||'').trim();
+      if(!u)return;
+      if(u===base||u===bare||u.slice(-1*(bare.length+1))===' '+bare)out.push(u);
+    });
+  }
   if(UNITS_DATA&&UNITS_DATA.length){
     UNITS_DATA.forEach(function(u){
       if(!u||u.active===false||u.source!=='hostplatform')return;
@@ -390,9 +399,8 @@ function reportUnitAliases(unitName){
       if(!raw)return;
       var mapped=String(u.mapped_unit_name||'').trim();
       var hpName=String(u.name||'').trim();
-      if(mapped&&mapped===base)out.push(raw);
-      if(hpName&&hpName===base)out.push(raw);
-      if(m&&hpName&&hpName===m[1].trim())out.push(raw);
+      if(mapped&&mapped===bare)out.push(raw);
+      if(hpName&&hpName===bare)out.push(raw);
     });
   }
   return uniqueNames(out.filter(Boolean));
