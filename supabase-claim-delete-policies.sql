@@ -18,7 +18,7 @@ create policy "claims_delete_employee_unpaid" on public.claims
 create policy "claims_delete_manager_unpaid" on public.claims
   for delete using (
     public.get_my_role() in ('admin', 'manager')
-    and coalesce(status, '') not in ('Claimed', 'Company-Paid')
+    and coalesce(status, '') <> 'Claimed'
   );
 
 commit;
