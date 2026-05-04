@@ -274,15 +274,46 @@ serve(async (req: Request) => {
         };
       });
 
-      if (rows.length > 0) {
-        const { error } = await sb.from("reservations").upsert(rows, {
+      const reservationRows = rows.filter((row) => row.booking_type !== 6);
+      const unavailableRows = rows
+        .filter((row) => row.booking_type === 6)
+        .map((row) => ({
+          external_id: row.ext_id,
+          code: row.code,
+          source_id: row.source_id,
+          hp_unit_id: row.hp_unit_id,
+          unit_name: row.unit_name,
+          property_name: row.property_name,
+          start_date: row.start_date,
+          end_date: row.end_date,
+          nights: row.nights,
+          reason: "unavailable",
+          source: "hostplatform_type6",
+          raw_data: row.raw_data,
+          updated_at: new Date().toISOString(),
+        }));
+
+      if (reservationRows.length > 0) {
+        const { error } = await sb.from("reservations").upsert(reservationRows, {
           onConflict: "code",
           ignoreDuplicates: false,
         });
         if (error) {
-          console.error("Upsert error page", currentPage, error);
+          console.error("Reservation upsert error page", currentPage, error);
         } else {
-          totalUpserted += rows.length;
+          totalUpserted += reservationRows.length;
+        }
+      }
+
+      if (unavailableRows.length > 0) {
+        const { error } = await sb.from("unit_unavailability").upsert(unavailableRows, {
+          onConflict: "external_id",
+          ignoreDuplicates: false,
+        });
+        if (error) {
+          console.error("Unavailable upsert error page", currentPage, error);
+        } else {
+          totalUpserted += unavailableRows.length;
         }
       }
 
