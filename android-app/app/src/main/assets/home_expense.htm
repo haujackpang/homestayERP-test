@@ -120,6 +120,96 @@ body{background:#f0f2f5;display:flex;justify-content:center;padding:20px 0 40px;
 .ai-tag{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:2px 7px;border-radius:99px;background:#dbeafe;color:#1d4ed8;}
 .ai-manual-link{font-size:11px;color:#6b7280;text-decoration:underline;cursor:pointer;text-align:center;display:block;margin-top:6px;}
 .watermark{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);font-size:96px;font-weight:700;color:rgba(239,68,68,0.12);pointer-events:none;white-space:nowrap;z-index:2;}
+.phone.wide-phone{width:min(1120px,calc(100vw - 16px));}
+.ci-shell{display:flex;flex-direction:column;gap:12px;}
+.ci-section{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:12px;}
+.ci-topline{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+.ci-title{font-size:15px;font-weight:700;color:#111;}
+.ci-sub{font-size:11px;color:#6b7280;margin-top:2px;line-height:1.4;}
+.ci-period{min-width:146px;}
+.ci-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+.ci-card{border-radius:12px;padding:11px 12px;border:1px solid #e5e7eb;background:#f9fafb;}
+.ci-card.revenue{background:#dbeafe;border-color:#bfdbfe;}
+.ci-card.expense{background:#fef3c7;border-color:#fde68a;}
+.ci-card.profit{background:#d1fae5;border-color:#a7f3d0;}
+.ci-card.profit.down{background:#fee2e2;border-color:#fecaca;}
+.ci-kicker{font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;}
+.ci-card.revenue .ci-kicker{color:#1d4ed8;}
+.ci-card.expense .ci-kicker{color:#92400e;}
+.ci-card.profit .ci-kicker{color:#065f46;}
+.ci-card.profit.down .ci-kicker{color:#991b1b;}
+.ci-value{font-size:21px;font-weight:800;color:#111;margin-top:4px;}
+.ci-card.revenue .ci-value{color:#1d4ed8;}
+.ci-card.expense .ci-value{color:#92400e;}
+.ci-card.profit .ci-value{color:#065f46;}
+.ci-card.profit.down .ci-value{color:#991b1b;}
+.ci-foot{font-size:10px;color:#6b7280;margin-top:4px;line-height:1.4;}
+.ci-note{background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:10px 12px;font-size:11px;color:#1d4ed8;line-height:1.45;}
+.ci-grid{display:grid;gap:10px;}
+.ci-chart-card{background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;padding:11px 12px;}
+.ci-chart-title{font-size:12px;font-weight:700;color:#111;margin-bottom:2px;}
+.ci-chart-sub{font-size:10px;color:#6b7280;margin-bottom:10px;line-height:1.4;}
+.ci-legend{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
+.ci-legend-item{display:flex;align-items:center;gap:5px;font-size:10px;color:#6b7280;}
+.ci-dot{width:9px;height:9px;border-radius:99px;display:inline-block;flex-shrink:0;}
+.ci-trend-wrap{position:relative;padding-top:6px;}
+.ci-trend-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end;min-height:188px;position:relative;z-index:2;}
+.ci-trend-col{display:flex;flex-direction:column;align-items:center;gap:7px;}
+.ci-trend-net{font-size:10px;font-weight:700;color:#065f46;background:#d1fae5;border-radius:99px;padding:2px 7px;white-space:nowrap;}
+.ci-trend-net.down{background:#fee2e2;color:#991b1b;}
+.ci-trend-bars{height:128px;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:7px;padding:0 2px;position:relative;}
+.ci-trend-bar{width:30px;max-width:42%;border-radius:10px 10px 4px 4px;min-height:6px;}
+.ci-trend-bar.rev{background:#60a5fa;}
+.ci-trend-bar.exp{background:#fbbf24;}
+.ci-trend-label{font-size:10px;color:#6b7280;}
+.ci-trend-svg{position:absolute;left:0;right:0;top:28px;height:128px;width:100%;z-index:1;pointer-events:none;}
+.ci-bar-list{display:flex;flex-direction:column;gap:8px;}
+.ci-bar-row{display:grid;grid-template-columns:minmax(0,112px) 1fr auto;gap:8px;align-items:center;}
+.ci-bar-label{font-size:11px;color:#374151;}
+.ci-bar-track{height:11px;border-radius:999px;background:#eef2f7;overflow:hidden;}
+.ci-bar-fill{height:100%;border-radius:999px;}
+.ci-bar-val{font-size:11px;font-weight:700;color:#111;white-space:nowrap;}
+.ci-kpi-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+.ci-mini{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px;text-align:center;}
+.ci-mini .ci-kicker{font-size:9px;}
+.ci-mini .ci-value{font-size:16px;margin-top:3px;}
+.ci-unit-head{display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:8px;}
+.ci-unit-hint{font-size:10px;color:#6b7280;line-height:1.4;}
+.ci-unit-table{width:100%;border-collapse:collapse;}
+.ci-unit-table th{font-size:10px;color:#6b7280;text-align:left;padding:8px 6px;border-bottom:1px solid #e5e7eb;font-weight:600;}
+.ci-unit-table td{font-size:12px;color:#111;padding:9px 6px;border-bottom:1px solid #f3f4f6;vertical-align:top;}
+.ci-unit-table tr:last-child td{border-bottom:none;}
+.ci-unit-table .num{text-align:right;white-space:nowrap;}
+.ci-unit-name{font-weight:700;color:#111;}
+.ci-unit-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;}
+.ci-tag{font-size:9px;padding:2px 7px;border-radius:999px;background:#e5e7eb;color:#374151;border:1px solid transparent;white-space:nowrap;}
+.ci-tag.good{background:#d1fae5;color:#065f46;border-color:#a7f3d0;}
+.ci-tag.warn{background:#fef3c7;color:#92400e;border-color:#fde68a;}
+.ci-tag.info{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe;}
+.ci-tag.bad{background:#fee2e2;color:#991b1b;border-color:#fecaca;}
+.ci-unit-cards{display:flex;flex-direction:column;gap:8px;}
+.ci-unit-card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:11px 12px;}
+.ci-unit-top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;}
+.ci-unit-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px;}
+.ci-metric{background:#f9fafb;border-radius:10px;padding:8px 9px;border:1px solid #e5e7eb;}
+.ci-metric .lbl{font-size:9px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;}
+.ci-metric .val{font-size:12px;font-weight:700;color:#111;margin-top:3px;}
+.ci-alerts{display:grid;gap:8px;}
+.ci-alert{border-radius:12px;padding:11px 12px;border:1px solid #e5e7eb;background:#fff;}
+.ci-alert.warn{background:#fffbeb;border-color:#fde68a;}
+.ci-alert.bad{background:#fef2f2;border-color:#fecaca;}
+.ci-alert.info{background:#eff6ff;border-color:#bfdbfe;}
+.ci-alert.good{background:#ecfdf5;border-color:#a7f3d0;}
+.ci-alert-title{font-size:12px;font-weight:700;color:#111;}
+.ci-alert-copy{font-size:11px;color:#4b5563;line-height:1.45;margin-top:4px;}
+@media (min-width:900px){
+  .ci-summary{grid-template-columns:repeat(4,minmax(0,1fr));}
+  .ci-grid.two-col{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);}
+  .ci-mobile-only{display:none !important;}
+}
+@media (max-width:899px){
+  .ci-desktop-only{display:none !important;}
+}
 </style>
 </head>
 <body>
@@ -186,11 +276,13 @@ var errorLogs=[],errorLogLoading=false,errorLogPage=1,errorLogTotal=0,errorLogHa
 var ERROR_LOG_PAGE_SIZE=50,frontendLogBusy=false;
 var unitTypes=[],unitConfig=[];
 var rptUnit='',rptMonth='',rptYear='';
+var companyInsightPeriod='';
 var editingUnitType=null,editingUnitCfg=null,utFormError='',ucFormError='';
 var syncLogs=[],syncLoading=false,syncRunning=false,unitSyncing=false;
 var showInactiveUnits=false;
 var unitPairingFilter='All',unitPairingSearch='';
 var reservations=[];
+var unitUnavailability=[];
 var ATTACHMENT_URLS={};
 
 // ===== FRONTEND ERROR LOGGER =====
@@ -559,6 +651,12 @@ async function loadUnits(){
     UNITS=uniqueNames(UNITS_DATA.filter(function(u){return u.active!==false;}).map(unitDisplayName));
   }
 }
+async function loadUnitUnavailability(){
+  if(isSystemAdmin||R!=='admin'){unitUnavailability=[];return;}
+  var{data,error}=await sb.from('unit_unavailability').select('*').order('start_date',{ascending:false});
+  if(error){console.error('loadUnitUnavailability:',error);return;}
+  unitUnavailability=data||[];
+}
 async function dbInsertUnit(name,propertyShort){
   var{error}=await sb.from('units').insert({name:name.trim(),property_short:propertyShort||'',source:'manual'});
   if(error)console.error('dbInsertUnit:',error);
@@ -569,7 +667,7 @@ async function dbUpdateUnit(id,fields){
   if(error)console.error('dbUpdateUnit:',error);
   return !error;
 }
-async function loadAll(){await loadClaims();await loadBankInfo();await loadUnits();await loadUnitTypes();await loadUnitConfig();await loadSyncLogs();await loadReservations();}
+async function loadAll(){await loadClaims();await loadBankInfo();await loadUnits();await loadUnitTypes();await loadUnitConfig();await loadSyncLogs();await loadUnitUnavailability();await loadReservations();}
 async function loadUnitTypes(){var{data}=await sb.from('unit_types').select('*').order('name');if(data)unitTypes=data;}
 async function loadUnitConfig(){var{data}=await sb.from('unit_config').select('*').order('unit_name');if(data)unitConfig=data;}
 async function dbInsertUnitType(name,cf,lf){var{error}=await sb.from('unit_types').insert({name:name.trim(),cleaning_fee:cf,laundry_fee:lf});return !error;}
@@ -687,6 +785,7 @@ async function doLogin(){
 async function doLogout(){
   await sb.auth.signOut();
   currentUser=null;currentProfile=null;R=null;S='auth';PS=null;claims=[];BANK_INFO={};EMPS=[];ACTIVE_EMPS=[];UNITS_DATA=[];
+  unitUnavailability=[];
   isSystemAdmin=false;allUsers=[];editingUser=null;userFormError='';editingUnit=null;unitFormError='';
   resetPasswordUser=null;resetPasswordError='';resetPasswordDraft1='';resetPasswordDraft2='';
   showInactiveUnits=false;
@@ -849,6 +948,258 @@ function logDetailValue(v){
   return esc(v);
 }
 function fmtDateShort(v){if(!v)return'--';var d=String(v).slice(0,10);return d.length===10?d.slice(8,10)+' '+(MONTHS[d.slice(5,7)]||d.slice(5,7)):esc(v);}
+function moneyFmt(v){return 'RM '+(Number(v)||0).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function pctFmt(v){return (Number(v)||0).toFixed(1)+'%';}
+function pctFmtDash(v){return v===null||v===undefined?'--':pctFmt(v);}
+function companyInsightsIsWideScreen(screen){return ['reportHome','unitExpenses','reportView','companyInsights','unitConfigList','unitConfigForm','reservationSync'].indexOf(screen)>=0;}
+function companyInsightsMonthLabel(period){
+  var p=String(period||'').split('-');
+  if(p.length!==2)return period||'';
+  return (MONTHS[p[1]]||p[1])+' '+p[0];
+}
+function companyInsightsPeriodStart(period){return new Date(period+'-01T00:00:00');}
+function companyInsightsPeriodEnd(period){var p=String(period||'').split('-');return new Date(Number(p[0]||0),Math.max(0,Number(p[1]||1)),1);}
+function companyInsightsDaysInPeriod(period){return Math.max(0,Math.round((companyInsightsPeriodEnd(period)-companyInsightsPeriodStart(period))/86400000));}
+function companyInsightsOverlapNights(startDate,endDate,period){
+  if(!startDate||!endDate)return 0;
+  var start=new Date(String(startDate).slice(0,10)+'T00:00:00');
+  var end=new Date(String(endDate).slice(0,10)+'T00:00:00');
+  if(isNaN(start.getTime())||isNaN(end.getTime()))return 0;
+  var periodStart=companyInsightsPeriodStart(period),periodEnd=companyInsightsPeriodEnd(period);
+  var from=start>periodStart?start:periodStart;
+  var to=end<periodEnd?end:periodEnd;
+  return Math.max(0,Math.round((to-from)/86400000));
+}
+function companyInsightsAddPeriodRange(bucket,startDate,endDate){
+  if(!startDate||!endDate)return;
+  var start=String(startDate).slice(0,7),end=String(endDate).slice(0,7);
+  if(!/^\d{4}-\d{2}$/.test(start)||!/^\d{4}-\d{2}$/.test(end))return;
+  var cur=start;
+  while(cur<=end){
+    bucket[cur]=true;
+    var y=Number(cur.slice(0,4)),m=Number(cur.slice(5,7));
+    m++;
+    if(m>12){m=1;y++;}
+    cur=y+'-'+(m<10?'0':'')+m;
+  }
+}
+function companyInsightsPeriods(){
+  var bucket={};
+  claims.forEach(function(c){
+    var period=(c.expMonth||String(c.date||'').slice(0,7)||'').slice(0,7);
+    if(/^\d{4}-\d{2}$/.test(period))bucket[period]=true;
+  });
+  reservations.forEach(function(r){
+    if(r&&r.booking_type!==6&&!String(r.booking_status||'').match(/Cancel/i))companyInsightsAddPeriodRange(bucket,r.start_date,r.end_date);
+  });
+  unitUnavailability.forEach(function(r){companyInsightsAddPeriodRange(bucket,r.start_date,r.end_date);});
+  var currentYm=(function(){var now=new Date();return now.getFullYear()+'-'+((now.getMonth()+1<10?'0':'')+(now.getMonth()+1));})();
+  var periods=Object.keys(bucket).sort().filter(function(period){return period<=currentYm;});
+  if(!periods.length)periods=[currentYm];
+  return periods;
+}
+function companyInsightsExpenseBucket(category){
+  var cat=String(category||'');
+  if(cat==='Water Bill'||cat==='Electricity Bill'||cat==='Internet Bill')return{label:'Utilities',color:'#185FA5'};
+  if(cat==='Rental')return{label:'Rental',color:'#7C3AED'};
+  if(cat==='MFSF')return{label:'MFSF',color:'#A45D2B'};
+  if(cat==='Maintenance & Repair'||cat==='Electrical & Unit Setup'||cat==='Unit Renovation')return{label:'Maintenance Cost',color:'#854F0B'};
+  if(cat==='Housekeeping & Cleaning'||cat==='Laundry'||cat==='Outsource Cleaning Staff'||cat==='Daily Products'||cat==='Hospitality Items')return{label:'Cleaning-related',color:'#3B6D11'};
+  return{label:'Other',color:'#888780'};
+}
+function companyInsightsReservationActive(r){return !!(r&&r.start_date&&r.end_date&&r.booking_type!==6&&!String(r.booking_status||'').match(/Cancel/i));}
+function companyInsightsReservationRevenue(r){return (Number(r&&r.rental||0)||0)+(Number(r&&r.extra_guest||0)||0);}
+function companyInsightsReservationNights(r){
+  var n=Number(r&&r.nights||0)||0;
+  if(n>0)return n;
+  if(!r||!r.start_date||!r.end_date)return 0;
+  return Math.max(0,Math.round((new Date(String(r.end_date).slice(0,10)+'T00:00:00')-new Date(String(r.start_date).slice(0,10)+'T00:00:00'))/86400000));
+}
+function companyInsightsUnitMatch(unitName,rowUnitName,rowHpUnitId){
+  var aliases=reportUnitAliases(unitName);
+  var hpIds=hpIdsForDisplayUnit(unitName);
+  var rowUnit=String(rowUnitName||'').trim();
+  return aliases.indexOf(rowUnit)>=0||(rowHpUnitId&&hpIds.indexOf(rowHpUnitId)>=0);
+}
+function companyInsightsUnitRows(period){
+  var APPROVED_STATUSES=['Approved','Claimed','Auto-Approved','Company-Paid'];
+  return UNITS.filter(function(u){return u&&u!=='MP Office';}).map(function(unit){
+    var unitClaims=claims.filter(function(c){
+      var claimPeriod=(c.expMonth||String(c.date||'').slice(0,7)||'').slice(0,7);
+      return APPROVED_STATUSES.indexOf(c.status)>=0&&claimPeriod===period&&companyInsightsUnitMatch(unit,c.unit,c.hpUnitId);
+    });
+    var activeRes=reservations.filter(function(r){return companyInsightsReservationActive(r)&&companyInsightsUnitMatch(unit,r.unit_name,r.hp_unit_id);});
+    var overlapRes=activeRes.filter(function(r){return companyInsightsOverlapNights(r.start_date,r.end_date,period)>0;});
+    var bookingCount=activeRes.filter(function(r){return String(r.end_date||'').slice(0,7)===period;}).length;
+    var occupiedNights=overlapRes.reduce(function(sum,r){return sum+companyInsightsOverlapNights(r.start_date,r.end_date,period);},0);
+    var grossBookingSales=overlapRes.reduce(function(sum,r){
+      var overlap=companyInsightsOverlapNights(r.start_date,r.end_date,period);
+      var totalNights=Math.max(1,companyInsightsReservationNights(r));
+      return sum+(companyInsightsReservationRevenue(r)*(overlap/totalNights));
+    },0);
+    var unitUnavailable=unitUnavailability.filter(function(r){return companyInsightsUnitMatch(unit,r.unit_name,r.hp_unit_id)&&companyInsightsOverlapNights(r.start_date,r.end_date,period)>0;});
+    var unavailableNights=unitUnavailable.reduce(function(sum,r){return sum+companyInsightsOverlapNights(r.start_date,r.end_date,period);},0);
+    unavailableNights=Math.min(companyInsightsDaysInPeriod(period),unavailableNights);
+    var sellableNights=Math.max(0,companyInsightsDaysInPeriod(period)-unavailableNights);
+    var occupancy=sellableNights>0?(occupiedNights/sellableNights*100):null;
+    var adr=occupiedNights>0?(grossBookingSales/occupiedNights):0;
+    var revpar=sellableNights>0?(grossBookingSales/sellableNights):0;
+    var cfg=unitConfig.filter(function(x){return x.unit_name===unit;})[0]||{};
+    var sharedExpenses=unitClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Both';}).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
+    var cleaningFeeIncome=bookingCount*(Number(cfg.cleaning_fee||0)||0);
+    var laundryFeeIncome=bookingCount*(Number(cfg.laundry_fee||0)||0);
+    var managementFeeIncome=(grossBookingSales-sharedExpenses-cleaningFeeIncome-laundryFeeIncome)*((Number(cfg.service_fee_pct||0)||0)/100);
+    var unitExpenses=unitClaims.reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
+    var cleaningRelatedCost=unitClaims.filter(function(c){return companyInsightsExpenseBucket(c.category).label==='Cleaning-related';}).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
+    var maintenanceCost=unitClaims.filter(function(c){return companyInsightsExpenseBucket(c.category).label==='Maintenance Cost';}).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
+    return{
+      unit:unit,
+      bookings:bookingCount,
+      occupiedNights:occupiedNights,
+      unavailableNights:unavailableNights,
+      sellableNights:sellableNights,
+      occupancy:occupancy,
+      adr:adr,
+      revpar:revpar,
+      grossBookingSales:grossBookingSales,
+      managementFeeIncome:managementFeeIncome,
+      cleaningFeeIncome:cleaningFeeIncome,
+      laundryFeeIncome:laundryFeeIncome,
+      companyIncome:managementFeeIncome+cleaningFeeIncome+laundryFeeIncome,
+      expenses:unitExpenses,
+      netContribution:(managementFeeIncome+cleaningFeeIncome+laundryFeeIncome)-unitExpenses,
+      cleaningRelatedCost:cleaningRelatedCost,
+      maintenanceCost:maintenanceCost
+    };
+  });
+}
+function companyInsightsExpenseRows(period){
+  var APPROVED_STATUSES=['Approved','Claimed','Auto-Approved','Company-Paid'];
+  var totals={};
+  claims.forEach(function(c){
+    var claimPeriod=(c.expMonth||String(c.date||'').slice(0,7)||'').slice(0,7);
+    if(APPROVED_STATUSES.indexOf(c.status)<0||claimPeriod!==period)return;
+    var bucket=companyInsightsExpenseBucket(c.category);
+    if(!totals[bucket.label])totals[bucket.label]={label:bucket.label,value:0,color:bucket.color};
+    totals[bucket.label].value+=(Number(c.amount)||0);
+  });
+  return Object.keys(totals).map(function(k){return totals[k];}).sort(function(a,b){return b.value-a.value;});
+}
+function companyInsightsLeaders(units){
+  var leader={net:null,weakest:null,occupancy:null,adr:null};
+  units.forEach(function(u){
+    if(!leader.net||u.netContribution>leader.net.netContribution)leader.net=u;
+    if(!leader.weakest||u.netContribution<leader.weakest.netContribution)leader.weakest=u;
+    if(u.occupancy!==null&&(!leader.occupancy||u.occupancy>leader.occupancy.occupancy))leader.occupancy=u;
+    if(!leader.adr||u.adr>leader.adr.adr)leader.adr=u;
+  });
+  return leader;
+}
+function companyInsightsBuildAlerts(current,previous){
+  var alerts=[];
+  var lowOcc=current.units.filter(function(u){return u.sellableNights>=5&&u.occupancy!==null&&u.occupancy<50;}).sort(function(a,b){return a.occupancy-b.occupancy;});
+  if(lowOcc.length)alerts.push({tone:'warn',title:'Low occupancy units',detail:lowOcc.slice(0,2).map(function(u){return u.unit+' '+pctFmt(u.occupancy);}).join(' · ')+' . Recheck weekday pricing and listing conversion.'});
+  var unavailable=current.units.filter(function(u){return u.unavailableNights>=3;}).sort(function(a,b){return b.unavailableNights-a.unavailableNights;});
+  if(unavailable.length)alerts.push({tone:'info',title:'Unavailable-day impact',detail:unavailable[0].unit+' lost '+unavailable[0].unavailableNights+' sellable night(s) this month from HostPlatform unavailable blocks.'});
+  var maintenance=current.units.filter(function(u){return u.maintenanceCost>0;}).sort(function(a,b){return b.maintenanceCost-a.maintenanceCost;});
+  if(maintenance.length&&maintenance[0].maintenanceCost>=300)alerts.push({tone:'bad',title:'Maintenance spike',detail:maintenance[0].unit+' recorded '+moneyFmt(maintenance[0].maintenanceCost)+' in maintenance-related costs. Review repeat repair items.'});
+  var cleaning=current.units.filter(function(u){return u.bookings>0&&u.cleaningRelatedCost>0;}).sort(function(a,b){return (b.cleaningRelatedCost/Math.max(1,b.bookings))-(a.cleaningRelatedCost/Math.max(1,a.bookings));});
+  if(cleaning.length&&cleaning[0].cleaningRelatedCost/Math.max(1,cleaning[0].bookings)>=120)alerts.push({tone:'warn',title:'Cleaning cost pressure',detail:cleaning[0].unit+' is spending '+moneyFmt(cleaning[0].cleaningRelatedCost/Math.max(1,cleaning[0].bookings))+' per booking on cleaning-related categories.'});
+  if(current.netProfit<0||current.profitMargin<10||(previous&&current.netProfit<previous.netProfit))alerts.push({tone:'bad',title:'Margin compression',detail:(current.netProfit<0?'The month is running at a net loss after tracked expenses.':('Net profit softened versus '+previous.label+'.'))+' Watch expense-heavy units and low-occupancy inventory.'});
+  else alerts.push({tone:'good',title:'Healthy margin',detail:'Net profit remained positive with a '+pctFmt(current.profitMargin)+' margin on company revenue.'});
+  return alerts.slice(0,4);
+}
+function companyInsightsDecoratedMonth(period){
+  var units=companyInsightsUnitRows(period);
+  var expenses=companyInsightsExpenseRows(period);
+  var companyRevenue=units.reduce(function(sum,u){return sum+u.companyIncome;},0);
+  var companyExpenses=expenses.reduce(function(sum,row){return sum+row.value;},0);
+  var occupiedTotal=units.reduce(function(sum,u){return sum+u.occupiedNights;},0);
+  var sellableTotal=units.reduce(function(sum,u){return sum+u.sellableNights;},0);
+  var current={
+    period:period,
+    label:companyInsightsMonthLabel(period),
+    grossBookingSales:units.reduce(function(sum,u){return sum+u.grossBookingSales;},0),
+    companyRevenue:companyRevenue,
+    companyExpenses:companyExpenses,
+    netProfit:companyRevenue-companyExpenses,
+    profitMargin:companyRevenue?((companyRevenue-companyExpenses)/companyRevenue*100):0,
+    portfolioOccupancy:sellableTotal>0?(occupiedTotal/sellableTotal*100):null,
+    occupiedNights:occupiedTotal,
+    sellableNights:sellableTotal,
+    unavailableNights:units.reduce(function(sum,u){return sum+u.unavailableNights;},0),
+    incomeMix:[
+      {label:'Management Fee',value:units.reduce(function(sum,u){return sum+u.managementFeeIncome;},0),color:'#2563eb'},
+      {label:'Cleaning Fee',value:units.reduce(function(sum,u){return sum+u.cleaningFeeIncome;},0),color:'#0f766e'},
+      {label:'Laundry Fee',value:units.reduce(function(sum,u){return sum+u.laundryFeeIncome;},0),color:'#4f46e5'}
+    ],
+    expenseBreakdown:expenses,
+    units:units
+  };
+  current.leaders=companyInsightsLeaders(units);
+  return current;
+}
+function companyInsightsUnitTags(unit,leaders){
+  var tags=[];
+  if(leaders.net&&leaders.net.unit===unit.unit)tags.push({label:'Top contribution',tone:'good'});
+  if(leaders.weakest&&leaders.weakest.unit===unit.unit)tags.push({label:'Weakest contribution',tone:'bad'});
+  if(leaders.occupancy&&leaders.occupancy.unit===unit.unit)tags.push({label:'Highest occupancy',tone:'info'});
+  if(leaders.adr&&leaders.adr.unit===unit.unit)tags.push({label:'Highest ADR',tone:'warn'});
+  return tags;
+}
+function companyInsightsBarList(rows){
+  if(!rows.length)return '<div class="ci-note" style="margin-top:0">No data for this month.</div>';
+  var max=Math.max.apply(null,rows.map(function(r){return Number(r.value)||0;}).concat([1]));
+  return rows.map(function(r){
+    var width=Math.max(6,Math.round((Number(r.value)||0)/max*100));
+    return '<div class="ci-bar-row"><div class="ci-bar-label">'+esc(r.label)+'</div><div class="ci-bar-track"><div class="ci-bar-fill" style="width:'+width+'%;background:'+(r.color||'#2563eb')+'"></div></div><div class="ci-bar-val">'+moneyFmt(r.value)+'</div></div>';
+  }).join('');
+}
+function companyInsightsTrendChart(){
+  var periods=companyInsightsPeriods();
+  var months=periods.slice(Math.max(0,periods.length-6)).map(companyInsightsDecoratedMonth);
+  var max=Math.max.apply(null,months.map(function(m){return Math.max(m.companyRevenue,m.companyExpenses,Math.abs(m.netProfit));}).concat([1]));
+  var points=months.map(function(m,idx){
+    var x=12+idx*(76/(Math.max(months.length-1,1)));
+    var y=88-(Math.max(m.netProfit,0)/max*70);
+    return x.toFixed(2)+','+y.toFixed(2);
+  }).join(' ');
+  var circles=months.map(function(m,idx){
+    var x=12+idx*(76/(Math.max(months.length-1,1)));
+    var y=88-(Math.max(m.netProfit,0)/max*70);
+    return '<circle cx="'+x.toFixed(2)+'" cy="'+y.toFixed(2)+'" r="2.6" fill="#065f46"></circle>';
+  }).join('');
+  var cols=months.map(function(m){
+    var revH=Math.max(6,Math.round(m.companyRevenue/max*100));
+    var expH=Math.max(6,Math.round(m.companyExpenses/max*100));
+    var netCls=m.netProfit<0?' down':'';
+    return '<div class="ci-trend-col"><div class="ci-trend-net'+netCls+'">'+moneyFmt(m.netProfit)+'</div><div class="ci-trend-bars"><div class="ci-trend-bar rev" style="height:'+revH+'%"></div><div class="ci-trend-bar exp" style="height:'+expH+'%"></div></div><div class="ci-trend-label">'+esc(companyInsightsMonthLabel(m.period).split(' ')[0])+'</div></div>';
+  }).join('');
+  return '<div class="ci-chart-card"><div class="ci-chart-title">Company Revenue vs Expenses vs Net Profit</div><div class="ci-chart-sub">Grouped bars show revenue and expense. The green line tracks net company profit.</div><div class="ci-legend"><span class="ci-legend-item"><span class="ci-dot" style="background:#60a5fa"></span>Company Revenue</span><span class="ci-legend-item"><span class="ci-dot" style="background:#fbbf24"></span>Company Expenses</span><span class="ci-legend-item"><span class="ci-dot" style="background:#065f46"></span>Net Profit</span></div><div class="ci-trend-wrap"><svg class="ci-trend-svg" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline fill="none" stroke="#065f46" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" points="'+points+'"></polyline>'+circles+'</svg><div class="ci-trend-grid">'+cols+'</div></div></div>';
+}
+function companyInsightsScreenHtml(){
+  var periods=companyInsightsPeriods();
+  if(!companyInsightPeriod||periods.indexOf(companyInsightPeriod)<0)companyInsightPeriod=periods[periods.length-1];
+  var current=companyInsightsDecoratedMonth(companyInsightPeriod);
+  var previousPeriod=periods[Math.max(0,periods.indexOf(current.period)-1)]||'';
+  var previous=previousPeriod?companyInsightsDecoratedMonth(previousPeriod):null;
+  current.alerts=companyInsightsBuildAlerts(current,previous);
+  var periodOpts=periods.map(function(period){return '<option value="'+period+'"'+(period===current.period?' selected':'')+'>'+companyInsightsMonthLabel(period)+'</option>';}).join('');
+  var profitCls=current.netProfit<0?' down':'';
+  var incomeHtml=companyInsightsBarList(current.incomeMix);
+  var expenseHtml=companyInsightsBarList(current.expenseBreakdown);
+  var unitRows=current.units.slice().sort(function(a,b){return b.netContribution-a.netContribution;});
+  var tableRows=unitRows.map(function(u){
+    var tags=companyInsightsUnitTags(u,current.leaders).map(function(t){return '<span class="ci-tag '+t.tone+'">'+t.label+'</span>';}).join('');
+    return '<tr><td><div class="ci-unit-name">'+esc(u.unit)+'</div><div class="ci-unit-tags">'+tags+'</div></td><td class="num">'+u.bookings+'</td><td class="num">'+u.occupiedNights+'</td><td class="num">'+u.unavailableNights+'</td><td class="num">'+pctFmtDash(u.occupancy)+'</td><td class="num">'+moneyFmt(u.adr)+'</td><td class="num">'+moneyFmt(u.revpar)+'</td><td class="num">'+moneyFmt(u.companyIncome)+'</td><td class="num">'+moneyFmt(u.expenses)+'</td><td class="num" style="font-weight:700;color:'+(u.netContribution>=0?'#065f46':'#991b1b')+'">'+moneyFmt(u.netContribution)+'</td></tr>';
+  }).join('');
+  var unitCards=unitRows.map(function(u){
+    var tags=companyInsightsUnitTags(u,current.leaders).map(function(t){return '<span class="ci-tag '+t.tone+'">'+t.label+'</span>';}).join('');
+    return '<div class="ci-unit-card"><div class="ci-unit-top"><div><div class="ci-unit-name">'+esc(u.unit)+'</div><div class="ci-unit-tags">'+tags+'</div></div><div style="text-align:right"><div class="ci-kicker">Net Contribution</div><div class="ci-value" style="font-size:17px;color:'+(u.netContribution>=0?'#065f46':'#991b1b')+'">'+moneyFmt(u.netContribution)+'</div></div></div><div class="ci-unit-metrics"><div class="ci-metric"><div class="lbl">Bookings</div><div class="val">'+u.bookings+'</div></div><div class="ci-metric"><div class="lbl">Occupied Nights</div><div class="val">'+u.occupiedNights+'</div></div><div class="ci-metric"><div class="lbl">Unavailable Nights</div><div class="val">'+u.unavailableNights+'</div></div><div class="ci-metric"><div class="lbl">Occupancy</div><div class="val">'+pctFmtDash(u.occupancy)+'</div></div><div class="ci-metric"><div class="lbl">ADR</div><div class="val">'+moneyFmt(u.adr)+'</div></div><div class="ci-metric"><div class="lbl">RevPAR</div><div class="val">'+moneyFmt(u.revpar)+'</div></div><div class="ci-metric"><div class="lbl">Company Income</div><div class="val">'+moneyFmt(u.companyIncome)+'</div></div><div class="ci-metric"><div class="lbl">Expenses</div><div class="val">'+moneyFmt(u.expenses)+'</div></div></div></div>';
+  }).join('');
+  var alertHtml=current.alerts.map(function(a){return '<div class="ci-alert '+(a.tone||'info')+'"><div class="ci-alert-title">'+esc(a.title)+'</div><div class="ci-alert-copy">'+esc(a.detail)+'</div></div>';}).join('');
+  return '<div class="scr"><div class="ci-shell"><div class="ci-note">Manager dashboard only. HostPlatform type-6 rows are treated as generic unavailable days in this first version.</div><div class="ci-section"><div class="ci-topline"><div><div class="ci-title">Company Monthly Insights</div><div class="ci-sub">Manager view for company-level performance, unit contribution, and occupancy impact.</div></div><div class="ci-period"><label class="fl">Month</label><select class="fi" onchange="setCompanyInsightPeriod(this.value)">'+periodOpts+'</select></div></div><div class="ci-summary" style="margin-top:10px"><div class="ci-card profit'+profitCls+'"><div class="ci-kicker">Net Profit / Loss</div><div class="ci-value">'+moneyFmt(current.netProfit)+'</div><div class="ci-foot">'+(previous?('vs '+previous.label+' '+moneyFmt(current.netProfit-previous.netProfit)):'Computed from company revenue minus tracked expenses')+'</div></div><div class="ci-card revenue"><div class="ci-kicker">Company Revenue</div><div class="ci-value">'+moneyFmt(current.companyRevenue)+'</div><div class="ci-foot">Management fee + cleaning fee + laundry fee</div></div><div class="ci-card"><div class="ci-kicker">Portfolio Occupancy</div><div class="ci-value">'+pctFmtDash(current.portfolioOccupancy)+'</div><div class="ci-foot">'+current.occupiedNights+' occupied night(s) across '+current.sellableNights+' sellable night(s)</div></div></div><div class="ci-note" style="margin-top:10px">Gross booking sales for <b>'+esc(current.label)+'</b> are <b>'+moneyFmt(current.grossBookingSales)+'</b>. Profit margin is <b>'+pctFmt(current.profitMargin)+'</b>. Imported unavailable nights this month: <b>'+current.unavailableNights+'</b>.</div></div>'+companyInsightsTrendChart()+'<div class="ci-grid two-col"><div class="ci-chart-card"><div class="ci-chart-title">Income Drivers</div><div class="ci-chart-sub">Recurring company income generated from the active units in the selected month.</div><div class="ci-bar-list">'+incomeHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Portfolio Capacity</div><div class="ci-chart-sub">Occupancy uses sellable nights after HostPlatform unavailable days are removed.</div><div class="ci-kpi-strip"><div class="ci-mini"><div class="ci-kicker">Occupied Nights</div><div class="ci-value">'+current.occupiedNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Unavailable Nights</div><div class="ci-value">'+current.unavailableNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Sellable Nights</div><div class="ci-value">'+current.sellableNights+'</div></div></div></div><div class="ci-chart-card"><div class="ci-chart-title">Expense Breakdown</div><div class="ci-chart-sub">Tracked claim categories that compressed margin in the selected month.</div><div class="ci-bar-list">'+expenseHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Interpretation</div><div class="ci-chart-sub">How to read this month quickly.</div><div class="ci-alert info"><div class="ci-alert-title">Top cards</div><div class="ci-alert-copy">Start with profit, revenue, and occupancy before drilling into unit rows.</div></div><div class="ci-alert warn"><div class="ci-alert-title">Unit ranking</div><div class="ci-alert-copy">Net contribution ranks the units after tracked expenses, not just bookings.</div></div><div class="ci-alert good"><div class="ci-alert-title">Unavailable days</div><div class="ci-alert-copy">Type-6 HostPlatform rows now reduce sellable nights instead of making occupancy look artificially weak.</div></div></div></div><div class="ci-section"><div class="ci-unit-head"><div><div class="ci-title" style="font-size:14px">Unit Performance</div><div class="ci-sub">Occupancy uses month sellable nights after imported unavailable blocks are removed.</div></div><div class="ci-unit-hint">Desktop shows a ranked table. Narrow screens switch to stacked cards.</div></div><div class="ci-desktop-only"><table class="ci-unit-table"><thead><tr><th>Unit</th><th class="num">Bookings</th><th class="num">Occ Nights</th><th class="num">Unavailable</th><th class="num">Occupancy</th><th class="num">ADR</th><th class="num">RevPAR</th><th class="num">Company Income</th><th class="num">Expenses</th><th class="num">Net Contribution</th></tr></thead><tbody>'+tableRows+'</tbody></table></div><div class="ci-mobile-only ci-unit-cards">'+unitCards+'</div></div><div class="ci-section"><div class="ci-title" style="font-size:14px">Alerts</div><div class="ci-sub">Action-oriented prompts for the next month, not just historical reporting.</div><div class="ci-alerts" style="margin-top:10px">'+alertHtml+'</div></div></div></div>';
+}
 function expMonthSelect(selVal){
   var now=new Date();var opts=[];
   for(var i=-3;i<=1;i++){var d=new Date(now.getFullYear(),now.getMonth()+i,1);var v=d.getFullYear()+'-'+(d.getMonth()+1<10?'0':'')+(d.getMonth()+1);var lbl=MONTHS[(d.getMonth()+1<10?'0':'')+(d.getMonth()+1)]+' '+d.getFullYear();opts.push('<option value="'+v+'"'+(selVal===v?' selected':'')+'>'+lbl+'</option>');}
@@ -2049,6 +2400,10 @@ function render(){
     console.log('ℹ Live environment | SUPABASE_URL:',SUPABASE_URL.substring(0,30)+'... | path:',path);
   }
   bb_el.style.display='none';tbr_el.style.display='none';nav.style.display='none';nav.innerHTML='';lo.style.display='none';
+  if(phoneEl){
+    if(companyInsightsIsWideScreen(S))phoneEl.classList.add('wide-phone');
+    else phoneEl.classList.remove('wide-phone');
+  }
 
   function empNav(a){
     nav.style.display='flex';
@@ -2451,8 +2806,14 @@ function render(){
     var rUnitOpts=UNITS.map(function(u){return'<option value="'+u+'"'+(rptUnit===u?' selected':'')+'>'+u+'</option>';}).join('');
     var rMonthOpts=Object.entries(MONTHS).map(function(e){return'<option value="'+e[0]+'"'+(rptMonth===e[0]?' selected':'')+'>'+e[1]+'</option>';}).join('');
     var rYearOpts=YEARS.map(function(y){return'<option value="'+y+'"'+(rptYear===y?' selected':'')+'>'+y+'</option>';}).join('');
+    var insightsTile='<div style="margin-top:10px;background:#ecfdf5;border:1px solid #86efac;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="openCompanyInsights()"><div><div style="font-size:12px;font-weight:700;color:#065f46">Company Monthly Insights</div><div style="font-size:10px;color:#6b7280">Manager dashboard with revenue, occupancy, unit ranking, and alerts</div></div><span style="font-size:16px;color:#065f46">›</span></div>';
     var unitExpenseTile='<div style="margin-top:10px;background:#eff6ff;border:1px solid #93c5fd;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="ss(\'unitExpenses\',\'reportHome\')"><div><div style="font-size:12px;font-weight:700;color:#1d4ed8">Unit Expenses</div><div style="font-size:10px;color:#6b7280">Review every non-draft expense by unit</div></div><span style="font-size:16px;color:#1d4ed8">›</span></div>';
-    ms.innerHTML='<div class="scr"><div style="font-size:15px;font-weight:700;color:#111;margin-bottom:2px">Generate Report</div><div style="font-size:11px;color:#6b7280;margin-bottom:12px">Select unit and period</div><div class="fg"><label class="fl">Unit *</label><select class="fi" id="rpt-unit" onchange="rptUnit=this.value"><option value="">— Select unit —</option>'+rUnitOpts+'</select></div><div class="tcol"><div class="fg"><label class="fl">Month</label><select class="fi" id="rpt-month" onchange="rptMonth=this.value">'+rMonthOpts+'</select></div><div class="fg"><label class="fl">Year</label><select class="fi" id="rpt-year" onchange="rptYear=this.value">'+rYearOpts+'</select></div></div><button class="pbtn btn-p" onclick="openReportView()">📊 View Report</button>'+unitExpenseTile+'<div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:14px"><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:8px">Settings</div><div style="display:flex;flex-direction:column;gap:6px"><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="ss(\'unitConfigList\',\'reportHome\')"><div><div style="font-size:12px;font-weight:600;color:#111">Unit Configuration</div><div style="font-size:10px;color:#6b7280">Owner, rates, profit sharing</div></div><span style="font-size:16px;color:#6b7280">›</span></div><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="openSyncScreen()"><div><div style="font-size:12px;font-weight:600;color:#111">Reservation Sync</div><div style="font-size:10px;color:#6b7280">Auto-import booking data</div></div><span style="font-size:16px;color:#6b7280">›</span></div></div></div></div>';
+    ms.innerHTML='<div class="scr"><div style="font-size:15px;font-weight:700;color:#111;margin-bottom:2px">Generate Report</div><div style="font-size:11px;color:#6b7280;margin-bottom:12px">Select unit and period</div><div class="fg"><label class="fl">Unit *</label><select class="fi" id="rpt-unit" onchange="rptUnit=this.value"><option value="">— Select unit —</option>'+rUnitOpts+'</select></div><div class="tcol"><div class="fg"><label class="fl">Month</label><select class="fi" id="rpt-month" onchange="rptMonth=this.value">'+rMonthOpts+'</select></div><div class="fg"><label class="fl">Year</label><select class="fi" id="rpt-year" onchange="rptYear=this.value">'+rYearOpts+'</select></div></div><button class="pbtn btn-p" onclick="openReportView()">📊 View Report</button>'+insightsTile+unitExpenseTile+'<div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:14px"><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:8px">Settings</div><div style="display:flex;flex-direction:column;gap:6px"><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="ss(\'unitConfigList\',\'reportHome\')"><div><div style="font-size:12px;font-weight:600;color:#111">Unit Configuration</div><div style="font-size:10px;color:#6b7280">Owner, rates, profit sharing</div></div><span style="font-size:16px;color:#6b7280">›</span></div><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="openSyncScreen()"><div><div style="font-size:12px;font-weight:600;color:#111">Reservation Sync</div><div style="font-size:10px;color:#6b7280">Auto-import booking data</div></div><span style="font-size:16px;color:#6b7280">›</span></div></div></div></div>';
+  }
+  else if(S==='companyInsights'){
+    if(isSystemAdmin||R!=='admin'){toast('Only manager can access dashboard');ss(isSystemAdmin?'adminUsers':'empHome',isSystemAdmin?'adminUsers':'empHome');return;}
+    tbt_el.textContent='Company Insights';bb_el.style.display='block';adminNav('report');
+    ms.innerHTML=companyInsightsScreenHtml();
   }
   else if(S==='unitExpenses'){
     tbt_el.textContent='Unit Expenses';bb_el.style.display='block';adminNav('report');
@@ -2598,6 +2959,12 @@ window.openReportView=function(){
   if(u)rptUnit=u.value;if(m)rptMonth=m.value;if(yr)rptYear=yr.value;
   if(!rptUnit){toast('Please select a unit');return;}
   ss('reportView','reportHome');
+};
+window.setCompanyInsightPeriod=function(period){companyInsightPeriod=period;render();};
+window.openCompanyInsights=function(){
+  var periods=companyInsightsPeriods();
+  if(!companyInsightPeriod||periods.indexOf(companyInsightPeriod)<0)companyInsightPeriod=periods[periods.length-1];
+  ss('companyInsights','reportHome');
 };
 window.editUnitType=function(id){editingUnitType=unitTypes.filter(function(t){return t.id===id;})[0]||null;utFormError='';ss('cleaningFeeForm','cleaningFees');};
 window.delUnitType=async function(id,name){
