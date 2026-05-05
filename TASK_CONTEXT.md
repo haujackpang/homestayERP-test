@@ -9,6 +9,11 @@ Current focus:
 5. Move normal claim attachments to signed upload/read helpers because the `receipts` bucket is private.
 6. Keep the rollout test-first; use the focused script `supabase-claims-manager-access.sql` only in environments where manager claim access still follows admin-only policies.
 
+2026-05-02 update (implemented locally, repo cleanup + doc alignment):
+1. Moved legacy SQL bootstrap/reset scripts into `archive/legacy-sql/` and moved ad-hoc inspection/test scripts into `archive/ad-hoc-scripts/`.
+2. Added `archive/README.md` so these files stay available for historical reference without cluttering the active repo root.
+3. Aligned `BUSINESS_RULES.md` and `PROJECT_OVERVIEW.md` to the current OpenRouter OCR implementation: `OPENROUTER_API_KEY`, `OPENROUTER_OCR_PRIMARY_MODEL`, `OPENROUTER_OCR_FALLBACK_MODELS`, and `AI_RECEIPT_SCAN_ENABLED`.
+
 2026-05-02 update (implemented locally, test-first):
 1. Added `supabase-test-fix-claim-delete.sql` as a paste-ready SQL Editor script to replace legacy `claims` delete policies in test with the current unpaid-claim delete rules.
 2. Claim delete failures in `home_expense.htm` now distinguish `Supabase error` from `0 rows deleted`, show the real error text in the toast when available, and write delete diagnostics into `error_logs`.

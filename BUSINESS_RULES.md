@@ -90,8 +90,10 @@
 - Expense invoice automation must run through Supabase Edge Functions, not directly from the browser to AI providers.
 - `analyze-receipt` extracts OCR/AI fields from the uploaded invoice or receipt.
 - `process-invoice` applies business rules after AI extraction, including duplicate checks, unit matching, expense month, and final description format.
-- OpenAI should be preferred when `OPENAI_API_KEY` is configured. Current selected OpenAI OCR model: `gpt-4o-mini`, because it supports text + image input and is low-cost enough for invoice extraction.
-- If `OPENAI_API_KEY` is missing, the app must return a clear configuration error or use an explicitly configured fallback provider.
+- `analyze-receipt` currently uses OpenRouter when `OPENROUTER_API_KEY` is configured.
+- The primary OCR model comes from `OPENROUTER_OCR_PRIMARY_MODEL`, with optional fallback models from `OPENROUTER_OCR_FALLBACK_MODELS`.
+- OCR feature availability is controlled by `AI_RECEIPT_SCAN_ENABLED`.
+- If `OPENROUTER_API_KEY` is missing, the app must return a clear configuration error instead of silently using a different AI provider.
 - Fixed utility/internet invoice descriptions must use:
   - Water Bill: `[WB] UNIT Mon YY`
   - Electricity Bill: `[EB] UNIT Mon YY`

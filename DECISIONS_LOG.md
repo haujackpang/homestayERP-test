@@ -1,5 +1,17 @@
 # Decisions Log
 
+## 2026-05-02: Archive Legacy SQL And Ad-Hoc Root Scripts
+Decision: Move old bootstrap/reset SQL and one-off inspection scripts out of the repo root into `archive/legacy-sql/` and `archive/ad-hoc-scripts/`, while deleting nothing in this cleanup pass.
+
+Reason:
+These files are historical reference material, not the active release path. Leaving them in the root increases the chance of running the wrong script in an environment-sensitive repo, while immediate deletion would remove useful operational history.
+
+## 2026-05-02: Align OCR Documentation To OpenRouter
+Decision: Update project docs so OCR/AI behavior is described as OpenRouter-based, using `OPENROUTER_API_KEY`, `OPENROUTER_OCR_PRIMARY_MODEL`, `OPENROUTER_OCR_FALLBACK_MODELS`, and `AI_RECEIPT_SCAN_ENABLED`.
+
+Reason:
+The live code path in `supabase/functions/analyze-receipt` already uses OpenRouter. Keeping docs on the old OpenAI-first wording would mislead future maintenance, deployment, and troubleshooting.
+
 ## 2026-04-30: Keep Mobile Upload As One Visible Attachment Button
 Decision: Use one visible upload/attachment button for receipt, manager attachment, payout slip, and AI scan picker paths, with no `capture` attribute on that normal upload action.
 

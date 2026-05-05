@@ -71,7 +71,8 @@ Recent completed work:
 - Property-level mapping is being replaced by HostPlatform property + unit mapping.
 - OCR/AI invoice extraction now runs through Supabase Edge Functions:
   - `process-invoice` handles auth, duplicate checks, unit matching, expense month, and final description formatting.
-  - `analyze-receipt` now supports a test-focused OpenRouter receipt flow that prefers a configured Qwen-VL primary model and falls back to other configured vision-capable OpenRouter models.
+  - `analyze-receipt` currently uses OpenRouter, requires `OPENROUTER_API_KEY`, reads its primary model from `OPENROUTER_OCR_PRIMARY_MODEL`, and can use `OPENROUTER_OCR_FALLBACK_MODELS` as a fallback chain.
+  - OCR availability is gated by `AI_RECEIPT_SCAN_ENABLED`.
   - Non-utility OCR descriptions are normalized server-side to include invoice/reference details and key item names, while `Water Bill`, `Electricity Bill`, and `Internet Bill` remain standardized as `[WB]/[EB]/[INT] UNIT Mon YY`.
   - Test duplicate handling now blocks final submit when `find_possible_duplicate_claims` returns a match, while still allowing draft save.
 - Repo/environment mapping was re-confirmed on 2026-04-26:
