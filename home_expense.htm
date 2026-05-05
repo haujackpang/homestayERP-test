@@ -261,6 +261,7 @@ var adminHistMonth='All',adminHistYear='All',adminHistEmp='All';
 var unitExpUnit='All',unitExpMonth='All',unitExpYear='All',unitExpStatus='All';
 var checkedClaims={},slipFiles=[],slipFileNames=[];
 var mgrFormEmp='',mgrFormPayType='employee';
+var mgrClaimDraft={desc:'',amount:'',date:'',cat:'',unit:'',chargedTo:'',expMonth:'',expMonthTouched:false};
 var empExpandMap={},editingBankEmp=null;
 var fxCollapsed=true;
 var claims=[],BANK_INFO={},EMPS=[],ACTIVE_EMPS=[],UNITS_DATA=[];
@@ -1200,11 +1201,60 @@ function companyInsightsScreenHtml(){
   var alertHtml=current.alerts.map(function(a){return '<div class="ci-alert '+(a.tone||'info')+'"><div class="ci-alert-title">'+esc(a.title)+'</div><div class="ci-alert-copy">'+esc(a.detail)+'</div></div>';}).join('');
   return '<div class="scr"><div class="ci-shell"><div class="ci-note">Manager dashboard only. HostPlatform type-6 rows are treated as generic unavailable days in this first version.</div><div class="ci-section"><div class="ci-topline"><div><div class="ci-title">Company Monthly Insights</div><div class="ci-sub">Manager view for company-level performance, unit contribution, and occupancy impact.</div></div><div class="ci-period"><label class="fl">Month</label><select class="fi" onchange="setCompanyInsightPeriod(this.value)">'+periodOpts+'</select></div></div><div class="ci-summary" style="margin-top:10px"><div class="ci-card profit'+profitCls+'"><div class="ci-kicker">Net Profit / Loss</div><div class="ci-value">'+moneyFmt(current.netProfit)+'</div><div class="ci-foot">'+(previous?('vs '+previous.label+' '+moneyFmt(current.netProfit-previous.netProfit)):'Computed from company revenue minus tracked expenses')+'</div></div><div class="ci-card revenue"><div class="ci-kicker">Company Revenue</div><div class="ci-value">'+moneyFmt(current.companyRevenue)+'</div><div class="ci-foot">Management fee + cleaning fee + laundry fee</div></div><div class="ci-card"><div class="ci-kicker">Portfolio Occupancy</div><div class="ci-value">'+pctFmtDash(current.portfolioOccupancy)+'</div><div class="ci-foot">'+current.occupiedNights+' occupied night(s) across '+current.sellableNights+' sellable night(s)</div></div></div><div class="ci-note" style="margin-top:10px">Gross booking sales for <b>'+esc(current.label)+'</b> are <b>'+moneyFmt(current.grossBookingSales)+'</b>. Profit margin is <b>'+pctFmt(current.profitMargin)+'</b>. Imported unavailable nights this month: <b>'+current.unavailableNights+'</b>.</div></div>'+companyInsightsTrendChart()+'<div class="ci-grid two-col"><div class="ci-chart-card"><div class="ci-chart-title">Income Drivers</div><div class="ci-chart-sub">Recurring company income generated from the active units in the selected month.</div><div class="ci-bar-list">'+incomeHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Portfolio Capacity</div><div class="ci-chart-sub">Occupancy uses sellable nights after HostPlatform unavailable days are removed.</div><div class="ci-kpi-strip"><div class="ci-mini"><div class="ci-kicker">Occupied Nights</div><div class="ci-value">'+current.occupiedNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Unavailable Nights</div><div class="ci-value">'+current.unavailableNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Sellable Nights</div><div class="ci-value">'+current.sellableNights+'</div></div></div></div><div class="ci-chart-card"><div class="ci-chart-title">Expense Breakdown</div><div class="ci-chart-sub">Tracked claim categories that compressed margin in the selected month.</div><div class="ci-bar-list">'+expenseHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Interpretation</div><div class="ci-chart-sub">How to read this month quickly.</div><div class="ci-alert info"><div class="ci-alert-title">Top cards</div><div class="ci-alert-copy">Start with profit, revenue, and occupancy before drilling into unit rows.</div></div><div class="ci-alert warn"><div class="ci-alert-title">Unit ranking</div><div class="ci-alert-copy">Net contribution ranks the units after tracked expenses, not just bookings.</div></div><div class="ci-alert good"><div class="ci-alert-title">Unavailable days</div><div class="ci-alert-copy">Type-6 HostPlatform rows now reduce sellable nights instead of making occupancy look artificially weak.</div></div></div></div><div class="ci-section"><div class="ci-unit-head"><div><div class="ci-title" style="font-size:14px">Unit Performance</div><div class="ci-sub">Occupancy uses month sellable nights after imported unavailable blocks are removed.</div></div><div class="ci-unit-hint">Desktop shows a ranked table. Narrow screens switch to stacked cards.</div></div><div class="ci-desktop-only"><table class="ci-unit-table"><thead><tr><th>Unit</th><th class="num">Bookings</th><th class="num">Occ Nights</th><th class="num">Unavailable</th><th class="num">Occupancy</th><th class="num">ADR</th><th class="num">RevPAR</th><th class="num">Company Income</th><th class="num">Expenses</th><th class="num">Net Contribution</th></tr></thead><tbody>'+tableRows+'</tbody></table></div><div class="ci-mobile-only ci-unit-cards">'+unitCards+'</div></div><div class="ci-section"><div class="ci-title" style="font-size:14px">Alerts</div><div class="ci-sub">Action-oriented prompts for the next month, not just historical reporting.</div><div class="ci-alerts" style="margin-top:10px">'+alertHtml+'</div></div></div></div>';
 }
-function expMonthSelect(selVal){
-  var now=new Date();var opts=[];
-  for(var i=-3;i<=1;i++){var d=new Date(now.getFullYear(),now.getMonth()+i,1);var v=d.getFullYear()+'-'+(d.getMonth()+1<10?'0':'')+(d.getMonth()+1);var lbl=MONTHS[(d.getMonth()+1<10?'0':'')+(d.getMonth()+1)]+' '+d.getFullYear();opts.push('<option value="'+v+'"'+(selVal===v?' selected':'')+'>'+lbl+'</option>');}
-  return'<div class="fg"><label class="fl">Expense month (belongs to)</label><select class="fi" id="f-expmonth">'+opts.join('')+'</select></div>';
+function monthLabelFromValue(v){
+  var p=String(v||'').split('-');return (MONTHS[p[1]]||p[1]||'')+' '+(p[0]||'');
 }
+function expMonthSelect(selVal,attrs){
+  var now=new Date();var opts=[];var seen={};var extra=attrs||'';
+  if(extra&&extra.charAt(0)!==' ')extra=' '+extra;
+  for(var i=-3;i<=1;i++){var d=new Date(now.getFullYear(),now.getMonth()+i,1);var v=d.getFullYear()+'-'+(d.getMonth()+1<10?'0':'')+(d.getMonth()+1);seen[v]=true;var lbl=MONTHS[(d.getMonth()+1<10?'0':'')+(d.getMonth()+1)]+' '+d.getFullYear();opts.push('<option value="'+v+'"'+(selVal===v?' selected':'')+'>'+lbl+'</option>');}
+  if(selVal&&!seen[selVal])opts.unshift('<option value="'+esc(selVal)+'" selected>'+esc(monthLabelFromValue(selVal))+'</option>');
+  return'<div class="fg"><label class="fl">Expense month (belongs to)</label><select class="fi" id="f-expmonth"'+extra+'>'+opts.join('')+'</select></div>';
+}
+function mgrClaimDefaultDate(){return new Date().toISOString().slice(0,10);}
+function mgrClaimDefaultMonth(dateVal){return (dateVal||mgrClaimDefaultDate()).slice(0,7);}
+function resetMgrClaimDraft(){mgrClaimDraft={desc:'',amount:'',date:'',cat:'',unit:'',chargedTo:'',expMonth:'',expMonthTouched:false};}
+function ensureExpenseMonthOption(sel,val){
+  if(!sel||!val)return;
+  for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===val)return;}
+  var opt=document.createElement('option');opt.value=val;opt.textContent=monthLabelFromValue(val);sel.insertBefore(opt,sel.firstChild);
+}
+function mgrClaimDraftDefaults(){
+  if(!mgrClaimDraft.date)mgrClaimDraft.date=mgrClaimDefaultDate();
+  if(!mgrClaimDraft.expMonth){mgrClaimDraft.expMonth=mgrClaimDefaultMonth(mgrClaimDraft.date);mgrClaimDraft.expMonthTouched=false;}
+}
+function readMgrClaimDraftFromDom(){
+  var d=document.getElementById('f-desc'),a=document.getElementById('f-amount'),dt=document.getElementById('f-date'),c=document.getElementById('f-cat'),u=document.getElementById('f-unit'),em=document.getElementById('f-expmonth'),chg=document.getElementById('f-charged');
+  if(d)mgrClaimDraft.desc=d.value;if(a)mgrClaimDraft.amount=a.value;if(dt)mgrClaimDraft.date=dt.value;if(c)mgrClaimDraft.cat=c.value;if(u)mgrClaimDraft.unit=u.value;if(em&&em.value)mgrClaimDraft.expMonth=em.value;if(chg)mgrClaimDraft.chargedTo=chg.value;
+}
+function mgrClaimDraftSet(k,v){mgrClaimDraft[k]=v;}
+function mgrClaimDateChanged(v){
+  mgrClaimDraft.date=v;
+  if(!mgrClaimDraft.expMonthTouched){
+    mgrClaimDraft.expMonth=mgrClaimDefaultMonth(v);
+    var em=document.getElementById('f-expmonth');ensureExpenseMonthOption(em,mgrClaimDraft.expMonth);if(em)em.value=mgrClaimDraft.expMonth;
+  }
+}
+function mgrClaimExpMonthChanged(v){mgrClaimDraft.expMonth=v;mgrClaimDraft.expMonthTouched=true;}
+function applyMgrClaimChargeUi(){
+  var u=document.getElementById('f-unit'),chg=document.getElementById('f-charged');
+  if(u&&typeof toggleChargeTo==='function')toggleChargeTo(u.value,'f-charge-wrap');
+  if(chg&&mgrClaimDraft.chargedTo)chg.value=mgrClaimDraft.chargedTo;
+}
+function restoreMgrClaimDraftToDom(){
+  if(S!=='mgrNewClaim')return;
+  mgrClaimDraftDefaults();
+  var d=document.getElementById('f-desc'),a=document.getElementById('f-amount'),dt=document.getElementById('f-date'),c=document.getElementById('f-cat'),u=document.getElementById('f-unit'),em=document.getElementById('f-expmonth'),chg=document.getElementById('f-charged');
+  if(d){d.value=mgrClaimDraft.desc;d.oninput=function(){mgrClaimDraft.desc=this.value;};}
+  if(a){a.value=mgrClaimDraft.amount;a.oninput=function(){mgrClaimDraft.amount=this.value;};}
+  if(dt){dt.value=mgrClaimDraft.date;dt.onchange=function(){mgrClaimDateChanged(this.value);};}
+  if(c){if(mgrClaimDraft.cat)c.value=mgrClaimDraft.cat;c.onchange=function(){mgrClaimDraft.cat=this.value;};}
+  if(u){if(mgrClaimDraft.unit)u.value=mgrClaimDraft.unit;u.onchange=function(){mgrClaimDraft.unit=this.value;toggleChargeTo(this.value,'f-charge-wrap');};}
+  if(em){ensureExpenseMonthOption(em,mgrClaimDraft.expMonth);em.value=mgrClaimDraft.expMonth;em.onchange=function(){mgrClaimExpMonthChanged(this.value);};}
+  applyMgrClaimChargeUi();
+  if(chg){chg.onchange=function(){mgrClaimDraft.chargedTo=this.value;};}
+}
+window.mgrClaimDraftSet=mgrClaimDraftSet;window.mgrClaimDateChanged=mgrClaimDateChanged;window.mgrClaimExpMonthChanged=mgrClaimExpMonthChanged;
 function normalizeAdminScreenName(screen){
   if(isSystemAdmin&&screen==='adminDash')return'adminUsers';
   return screen;
@@ -1215,6 +1265,7 @@ function ss(s,p){
   PS=parent;S=next;
   pendingFiles=[];pendingFileNames=[];
   if(next!=='newClaim'){aiResult=null;aiError='';aiAnalyzing=false;newClaimStep='manual';}
+  if(next!=='mgrNewClaim')resetMgrClaimDraft();
   render();
 }
 function adminHomeScreen(){return isSystemAdmin?'adminUsers':'adminDash';}
@@ -1226,11 +1277,9 @@ function goBack(){
 
 // ===== RECEIPT UPLOAD =====
 function togglePayType(t){
-  var d=document.getElementById('f-desc'),a=document.getElementById('f-amount'),dt=document.getElementById('f-date'),c=document.getElementById('f-cat'),u=document.getElementById('f-unit');
-  var sv={desc:d?d.value:'',amt:a?a.value:'',date:dt?dt.value:'',cat:c?c.value:'',unit:u?u.value:''};
+  readMgrClaimDraftFromDom();
   mgrFormPayType=t;render();
-  d=document.getElementById('f-desc');a=document.getElementById('f-amount');dt=document.getElementById('f-date');c=document.getElementById('f-cat');u=document.getElementById('f-unit');
-  if(d)d.value=sv.desc;if(a)a.value=sv.amt;if(dt)dt.value=sv.date;if(c)c.value=sv.cat;if(u)u.value=sv.unit;
+  setTimeout(restoreMgrClaimDraftToDom,0);
 }
 window.togglePayType=togglePayType;
 function openFilePicker(id,opts,onchange){
@@ -2160,6 +2209,7 @@ async function submitNewClaim(asDraft){
 }
 async function submitMgrClaim(){
   if(mgrSubmitBusy)return;
+  readMgrClaimDraftFromDom();
   var desc=document.getElementById('f-desc'),amt=document.getElementById('f-amount'),dt=document.getElementById('f-date'),cat=document.getElementById('f-cat'),unit=document.getElementById('f-unit');
   if(!desc||!amt||!dt)return;
   var dv=desc.value,av=parseFloat(amt.value),dtv=dt.value,cv=cat?cat.value:'Other',uv=unit?unit.value:'';
@@ -2169,6 +2219,8 @@ async function submitMgrClaim(){
   var charged=document.getElementById('f-charged');
   var isMP=uv==='MP Office';
   if(!isMP&&(!charged||!charged.value)){toast('Please select who to charge');return;}
+  var chargedVal=isMP?'':charged.value;
+  var emv=document.getElementById('f-expmonth');var expM=(emv&&emv.value)||mgrClaimDraft.expMonth||dtv.slice(0,7);
   var isCompany=mgrFormPayType==='company';
   // Duplicate check: same employee, same amount, same month, not rejected/draft
   if(av&&dtv){
@@ -2182,8 +2234,7 @@ async function submitMgrClaim(){
   mgrSubmitBusy=true;render();
   try{
     var cid=await getNextClaimId(isCompany?'CO':'MGR');
-    var emv=document.getElementById('f-expmonth');var expM=emv?emv.value:dtv.slice(0,7);
-    var nc={id:cid,emp:isCompany?'':mgrFormEmp,unit:uv,hpUnitId:unitHpId(uv),category:cv,desc:dv,amount:av,date:dtv,expMonth:expM,status:isCompany?'Company-Paid':'Auto-Approved',rejectReason:'',slipRef:'',receiptRefs:'',paymentSlipRefs:'',payType:mgrFormPayType,submittedBy:'manager',chargedTo:isMP?'':charged.value,invoiceNumber:aiResult?(aiResult.invoice_number||aiResult.reference_number||''):'',merchantName:aiResult?(aiResult.merchant_name||''):'',aiRaw:aiResult||{},aiConfidence:aiResult?(aiResult.confidence||0):0,sourceType:aiResult?'ai_scan':'manual'};
+    var nc={id:cid,emp:isCompany?'':mgrFormEmp,unit:uv,hpUnitId:unitHpId(uv),category:cv,desc:dv,amount:av,date:dtv,expMonth:expM,status:isCompany?'Company-Paid':'Auto-Approved',rejectReason:'',slipRef:'',receiptRefs:'',paymentSlipRefs:'',payType:mgrFormPayType,submittedBy:'manager',chargedTo:chargedVal,invoiceNumber:aiResult?(aiResult.invoice_number||aiResult.reference_number||''):'',merchantName:aiResult?(aiResult.merchant_name||''):'',aiRaw:aiResult||{},aiConfidence:aiResult?(aiResult.confidence||0):0,sourceType:aiResult?'ai_scan':'manual'};
     if(pendingFiles.length){
       var receiptRefs='';
       try{receiptRefs=await uploadAllFiles(cid,{category:cv,unit:uv,desc:dv,date:dtv});}catch(e){console.error(e);await logClaimSubmitFailure('submitMgrClaim.receiptUpload',nc,e,{is_company:isCompany});toast(e&&e.message?e.message:'Receipt upload failed');mgrSubmitBusy=false;render();return;}
@@ -2217,7 +2268,7 @@ async function submitMgrClaim(){
     addClaimLocal(nc);
     hydrateClaimAttachmentUrls([nc]).then(function(){if(S==='adminDash'||S==='adminList'||S==='adminHistory')render();});
     toast(isCompany?'Recorded as Company-Paid':'Auto-approved for '+mgrFormEmp);
-    aiResult=null;mgrFormPayType='employee';mgrFormEmp=myName();ss(isCompany?'adminHistory':'adminList','adminDash');
+    aiResult=null;mgrFormPayType='employee';mgrFormEmp=myName();resetMgrClaimDraft();ss(isCompany?'adminHistory':'adminList','adminDash');
     refreshClaimsInBackground();
   }catch(e){
     console.error(e);
@@ -2752,6 +2803,7 @@ function render(){
     var mgrAiLoading=aiAnalyzing?'<div style="display:flex;align-items:center;gap:8px;padding:10px;background:#eff6ff;border-radius:10px;border:1px solid #93c5fd"><div class="ai-spinner" style="width:18px;height:18px;border-width:2px"></div><span style="font-size:12px;color:#1d4ed8">Analyzing receipt...</span></div>':'';
     ms.innerHTML='<div class="scr"><div style="display:flex;flex-direction:column;gap:7px"><div class="ptype-card'+(isCompany?'':' on')+'" onclick="togglePayType(\'employee\')"><div style="font-size:20px">👤</div><div><div class="ptype-title">Employee paid</div><div class="ptype-desc">Needs reimbursement — auto-approved</div></div></div><div class="ptype-card'+(isCompany?' on':'')+'" onclick="togglePayType(\'company\')"><div style="font-size:20px">🏢</div><div><div class="ptype-title">Company paid</div><div class="ptype-desc">No reimbursement — tracking only</div></div></div></div>'+scanBtn+(isCompany?'<div class="info-box" style="background:#d1fae5"><div style="font-size:11px;color:#065f46"><span style="font-weight:600">Company-paid:</span> No employee assigned.</div></div>':'<div class="fg"><label class="fl">Submit for employee *</label><select class="fi" id="f-emp" onchange="mgrFormEmp=this.value">'+empOpts+'</select></div>')+'<div class="fg"><label class="fl">Category *</label><select class="fi" id="f-cat">'+catOpts+'</select></div><div class="fg"><label class="fl">Unit / location *</label><select class="fi" id="f-unit" onchange="toggleChargeTo(this.value,\x27f-charge-wrap\x27)"><option value="">— Select unit —</option>'+unitOpts+'</select></div><div class="fg"><label class="fl">Description *</label><input class="fi" id="f-desc" placeholder="e.g. Electricity Bill - INV12345"/></div><div class="tcol"><div class="fg"><label class="fl">Amount (RM) *</label><input class="fi" id="f-amount" type="number" placeholder="0.00"/></div><div class="fg"><label class="fl">Date *</label><input class="fi" id="f-date" type="date" value="'+today+'"/></div></div>'+expMonthSelect(lastMonth)+'<div id="f-charge-wrap"><div class="fg"><label class="fl">Charge to *</label><select class="fi" id="f-charged"><option value="">— Select —</option><option value="Owner">Owner</option><option value="Operator">Operator</option><option value="Both">Both</option></select></div></div><div id="rbox">'+receiptBox('')+'</div><button class="pbtn '+(isCompany?'btn-s':'btn-p')+'" onclick="submitMgrClaim()"'+(mgrSubmitBusy?' disabled':'')+'>'+(mgrSubmitBusy?'Submitting...':(isCompany?'Record as Company-Paid':'Submit (Auto-Approved)'))+'</button></div>';
     ms.innerHTML=claimWorkspaceShell('submit',ms.innerHTML);
+    setTimeout(restoreMgrClaimDraftToDom,0);
   }
   else if(S==='errorLogs'){
     if(!isSystemAdmin){toast('Only admin can access logs');ss(R==='admin'?'adminDash':'empHome');return;}
@@ -3153,6 +3205,8 @@ window.mgrScanReceipt=function(mode){
     var inp=document.getElementById('receipt-input');
     if(!inp.files||!inp.files.length)return;
     var f=inp.files[0];
+    readMgrClaimDraftFromDom();
+    var selectedUnit=mgrClaimDraft.unit;
     if(f.name.match(/\.pdf$/i)){
       aiAnalyzing=true;render();
       try{f=await pdfToImageFile(f);}catch(e){aiAnalyzing=false;render();toast('PDF conversion failed: '+e.message);return;}
@@ -3160,8 +3214,6 @@ window.mgrScanReceipt=function(mode){
     pendingFiles=[f];pendingFileNames=[f.name];
     aiAnalyzing=true;render();
     try{
-      var currentUnit=document.getElementById('f-unit');
-      var selectedUnit=currentUnit?currentUnit.value:'';
       var ai=await analyzeInvoiceFile(f,selectedUnit);
       aiResult=ai;
       aiAnalyzing=false;render();
@@ -3170,12 +3222,13 @@ window.mgrScanReceipt=function(mode){
         var d=document.getElementById('f-desc'),a=document.getElementById('f-amount'),dt=document.getElementById('f-date'),c=document.getElementById('f-cat'),u=document.getElementById('f-unit'),em=document.getElementById('f-expmonth');
         if(d)d.value=formatAiDescription(ai);
         if(a)a.value=ai.total||'';
-        if(dt&&ai.date)dt.value=ai.date;
+        if(dt&&ai.date){dt.value=ai.date;mgrClaimDateChanged(ai.date);}
         if(c&&ai.category){for(var i=0;i<c.options.length;i++){if(c.options[i].value===ai.category){c.selectedIndex=i;break;}}}
         var unitVal=selectedUnit||(ai.suggested&&ai.suggested.unit)||ai.unit_hint||'';
-        if(u&&unitVal){for(var j=0;j<u.options.length;j++){if(u.options[j].value===unitVal){u.selectedIndex=j;break;}}toggleChargeTo(u.value,'f-charge-wrap');}
+        if(u&&unitVal){for(var j=0;j<u.options.length;j++){if(u.options[j].value===unitVal){u.selectedIndex=j;break;}}mgrClaimDraft.unit=u.value;toggleChargeTo(u.value,'f-charge-wrap');}
         var expVal=(ai.suggested&&ai.suggested.expense_month)||ai.expense_month||'';
-        if(em&&expVal){for(var k=0;k<em.options.length;k++){if(em.options[k].value===expVal){em.selectedIndex=k;break;}}}
+        if(em&&expVal){ensureExpenseMonthOption(em,expVal);for(var k=0;k<em.options.length;k++){if(em.options[k].value===expVal){em.selectedIndex=k;break;}}mgrClaimExpMonthChanged(expVal);}
+        readMgrClaimDraftFromDom();
         if(ai.suggested&&ai.suggested.unit_warning)toast(ai.suggested.unit_warning);
         if(ai.duplicate_claims&&ai.duplicate_claims.length){toast(duplicateClaimMessage(ai));}
         else{toast('AI filled: '+ai.summary);}
