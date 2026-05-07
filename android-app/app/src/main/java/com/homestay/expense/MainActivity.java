@@ -134,6 +134,31 @@ public class MainActivity extends Activity {
         return false;
     }
 
+    private Intent createImageCaptureIntent() {
+        Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        if (cameraIntent.resolveActivity(getPackageManager()) == null) return null;
+        try {
+            File imageFile = File.createTempFile("receipt_", ".jpg", getCacheDir());
+            cameraImageUri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", imageFile);
+            cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, cameraImageUri);
+            cameraIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            return cameraIntent;
+        } catch (IOException e) {
+            cameraImageUri = null;
+            return null;
+        }
+    }
+
+    private boolean acceptsImages(WebChromeClient.FileChooserParams params) {
+        if (params == null) return true;
+        String[] types = params.getAcceptTypes();
+        if (types == null || types.length == 0) return true;
+        for (String type : types) {
+            if (type == null || type.length() == 0 || type.startsWith("image/")) return true;
+        }
+        return false;
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == FILE_CHOOSER_CODE) {

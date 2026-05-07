@@ -1,24 +1,26 @@
 name: Scheduled Reservation Import
 
 on:
+  schedule:
+    - cron: "0 0 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: sync-reservations-live
+  group: sync-reservations-test
   cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    if: github.repository == 'haujackpang/homestay-expenses'
+    if: github.repository == 'haujackpang/homestayERP-test'
     steps:
-      - name: Verify live repository
+      - name: Verify test repository
         run: |
-          if [ "${{ github.repository }}" != "haujackpang/homestay-expenses" ]; then
-            echo "This workflow is only allowed in the live repository."
+          if [ "${{ github.repository }}" != "haujackpang/homestayERP-test" ]; then
+            echo "This workflow is only allowed in the test repository."
             exit 1
           fi
 
@@ -59,7 +61,7 @@ jobs:
           project_ref="${project_ref#http://}"
           project_ref="${project_ref%%.supabase.co*}"
           function_origin="https://${project_ref}.functions.supabase.co"
-          echo "Calling Supabase project ref: ${project_ref}" 
+          echo "Calling Supabase project ref: ${project_ref}"
           echo "Supabase origin: ${supabase_origin}"
           echo "Function origin: ${function_origin}"
 
