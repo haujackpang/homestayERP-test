@@ -411,6 +411,12 @@ var UNITS=['KT11','150A','14A','LC03','IR B1506','IR B1631','IR B1913B','IR A210
 var PROPERTY_SHORT_CODES=['AR','IR','AC','CL','BR','SH','KT','LC','MP','OF'];
 var CATS=['Water Bill','Electricity Bill','Internet Bill','Rental','MFSF','Maintenance & Repair','Housekeeping & Cleaning','Laundry','Daily Products','Hospitality Items','Electrical & Unit Setup','Office Expenses','Employee Welfare','Outsource Cleaning Staff','Unit Renovation','Other'];
 var CAT_COLORS={'Water Bill':'#185FA5','Electricity Bill':'#0E6E9E','Internet Bill':'#2D5FA5','Rental':'#7C3AED','MFSF':'#A45D2B','Maintenance & Repair':'#854F0B','Housekeeping & Cleaning':'#3B6D11','Laundry':'#534AB7','Daily Products':'#0F6E56','Hospitality Items':'#993556','Electrical & Unit Setup':'#993C1D','Office Expenses':'#5F5E5A','Employee Welfare':'#185FA5','Outsource Cleaning Staff':'#854F0B','Unit Renovation':'#A32D2D','Other':'#888780'};
+var UNIT_BUSINESS_MODELS=[
+  {value:'owner_profit_sharing',label:'Owner Profit Sharing'},
+  {value:'rented_homestay',label:'Rented Homestay'},
+  {value:'long_term_management',label:'Long-term Management'},
+  {value:'company_office_excluded',label:'Company Office / Excluded'}
+];
 function hpPropertyKey(hpPropertyId,propertyName){
   if(hpPropertyId)return 'id:'+hpPropertyId;
   return 'name:'+String(propertyName||'').toLowerCase().trim();
@@ -689,15 +695,29 @@ async function loadUnitConfig(){var{data}=await sb.from('unit_config').select('*
 async function dbInsertUnitType(name,cf,lf){var{error}=await sb.from('unit_types').insert({name:name.trim(),cleaning_fee:cf,laundry_fee:lf});return !error;}
 async function dbUpdateUnitType(id,name,cf,lf){var{error}=await sb.from('unit_types').update({name:name.trim(),cleaning_fee:cf,laundry_fee:lf}).eq('id',id);return !error;}
 async function dbDeleteUnitType(id){var{error}=await sb.from('unit_types').delete().eq('id',id);return !error;}
-async function dbUpsertUnitConfig(unitName,ownerName,profitPct,cleaningFee,laundryFee){
-  var payload={unit_name:unitName,owner_name:ownerName||'',service_fee_pct:profitPct||0,cleaning_fee:cleaningFee||0,laundry_fee:laundryFee||0};
+async function dbUpsertUnitConfig(unitName,ownerName,profitPct,cleaningFee,laundryFee,businessModel,monthlyRent,marketRentBaseline,marketRentSourceUrl,marketRentReviewedAt){
+  var payload={
+    unit_name:unitName,
+    owner_name:ownerName||'',
+    service_fee_pct:profitPct||0,
+    cleaning_fee:cleaningFee||0,
+    laundry_fee:laundryFee||0,
+    business_model:businessModel||'owner_profit_sharing',
+    monthly_rent:monthlyRent||0,
+    market_rent_baseline:marketRentBaseline||0,
+    market_rent_source_url:marketRentSourceUrl||'',
+    market_rent_reviewed_at:marketRentReviewedAt||null
+  };
   var{error}=await sb.from('unit_config').upsert(payload,{onConflict:'unit_name'});
   if(error&&String(error.message||'').toLowerCase().indexOf('cleaning_fee')>=0){
     // Backward compatible fallback when DB has not added new rate columns yet.
     var retry=await sb.from('unit_config').upsert({unit_name:unitName,owner_name:ownerName||'',service_fee_pct:profitPct||0},{onConflict:'unit_name'});
     return{ok:!retry.error,missingRateColumns:!retry.error,error:retry.error};
   }
-  return{ok:!error,missingRateColumns:false,error:error};
+  if(error&&String(error.message||'').toLowerCase().match(/business_model|monthly_rent|market_rent/)){
+    return{ok:false,missingDashboardColumns:true,error:error};
+  }
+  return{ok:!error,missingRateColumns:false,missingDashboardColumns:false,error:error};
 }
 async function loadSyncLogs(){var{data}=await sb.from('sync_logs').select('*').order('started_at',{ascending:false}).limit(20);if(data)syncLogs=data;}
 async function loadReservations(){var{data}=await sb.from('reservations').select('*').order('start_date',{ascending:false});if(data)reservations=data;}
@@ -1083,6 +1103,49 @@ function companyInsightsExpenseBucket(category){
   if(cat==='Housekeeping & Cleaning'||cat==='Laundry'||cat==='Outsource Cleaning Staff'||cat==='Daily Products'||cat==='Hospitality Items')return{label:'Cleaning-related',color:'#3B6D11'};
   return{label:'Other',color:'#888780'};
 }
+function unitConfigFor(unitName){
+  return unitConfig.filter(function(x){return x.unit_name===unitName;})[0]||{};
+}
+function unitBusinessModel(unitName,cfg){
+  if(String(unitName||'')==='MP Office')return'company_office_excluded';
+  var v=String((cfg||{}).business_model||'').trim();
+  return UNIT_BUSINESS_MODELS.filter(function(m){return m.value===v;}).length?v:'owner_profit_sharing';
+}
+function unitBusinessModelLabel(model){
+  var row=UNIT_BUSINESS_MODELS.filter(function(m){return m.value===model;})[0];
+  return row?row.label:'Owner Profit Sharing';
+}
+function unitBusinessModelOptions(selected){
+  return UNIT_BUSINESS_MODELS.map(function(m){return'<option value="'+m.value+'"'+(selected===m.value?' selected':'')+'>'+m.label+'</option>';}).join('');
+}
+function cfgMoney(cfg,key){
+  return Number(cfg&&cfg[key]||0)||0;
+}
+function companyInsightsClaimPeriod(c){
+  return (c.expMonth||String(c.date||'').slice(0,7)||'').slice(0,7);
+}
+function companyInsightsApprovedClaims(period){
+  var APPROVED_STATUSES=['Approved','Claimed','Auto-Approved','Company-Paid'];
+  return claims.filter(function(c){return APPROVED_STATUSES.indexOf(c.status)>=0&&companyInsightsClaimPeriod(c)===period;});
+}
+function companyInsightsClaimAffectsCompany(c){
+  if(!c)return false;
+  if(String(c.unit||'')==='MP Office')return true;
+  var cfg=unitConfigFor(c.unit);
+  var model=unitBusinessModel(c.unit,cfg);
+  if(model==='company_office_excluded')return true;
+  if(reportChargeBucket(c.unit,c.chargedTo)==='Owner')return false;
+  if(model==='rented_homestay'&&c.category==='Rental'&&cfgMoney(cfg,'monthly_rent')>0)return false;
+  if(model==='long_term_management'&&(c.category==='Water Bill'||c.category==='Electricity Bill'||c.category==='Internet Bill'))return false;
+  return true;
+}
+function companyInsightsOccupancyStatus(days){
+  var d=Number(days)||0;
+  if(d<8)return{label:'Unhealthy',tone:'bad'};
+  if(d<15)return{label:'Normal',tone:'warn'};
+  if(d<=20)return{label:'Good',tone:'good'};
+  return{label:'Best',tone:'info'};
+}
 function companyInsightsReservationActive(r){return !!(r&&r.start_date&&r.end_date&&r.booking_type!==6&&!String(r.booking_status||'').match(/Cancel/i));}
 function companyInsightsReservationRevenue(r){return (Number(r&&r.rental||0)||0)+(Number(r&&r.extra_guest||0)||0);}
 function companyInsightsReservationNights(r){
@@ -1098,12 +1161,11 @@ function companyInsightsUnitMatch(unitName,rowUnitName,rowHpUnitId){
   return aliases.indexOf(rowUnit)>=0||(rowHpUnitId&&hpIds.indexOf(rowHpUnitId)>=0);
 }
 function companyInsightsUnitRows(period){
-  var APPROVED_STATUSES=['Approved','Claimed','Auto-Approved','Company-Paid'];
   return UNITS.filter(function(u){return u&&u!=='MP Office';}).map(function(unit){
-    var unitClaims=claims.filter(function(c){
-      var claimPeriod=(c.expMonth||String(c.date||'').slice(0,7)||'').slice(0,7);
-      return APPROVED_STATUSES.indexOf(c.status)>=0&&claimPeriod===period&&companyInsightsUnitMatch(unit,c.unit,c.hpUnitId);
-    });
+    var cfg=unitConfigFor(unit);
+    var model=unitBusinessModel(unit,cfg);
+    if(model==='company_office_excluded')return null;
+    var unitClaims=companyInsightsApprovedClaims(period).filter(function(c){return companyInsightsUnitMatch(unit,c.unit,c.hpUnitId);});
     var activeRes=reservations.filter(function(r){return companyInsightsReservationActive(r)&&companyInsightsUnitMatch(unit,r.unit_name,r.hp_unit_id);});
     var overlapRes=activeRes.filter(function(r){return companyInsightsOverlapNights(r.start_date,r.end_date,period)>0;});
     var bookingCount=activeRes.filter(function(r){return String(r.end_date||'').slice(0,7)===period;}).length;
@@ -1120,41 +1182,66 @@ function companyInsightsUnitRows(period){
     var occupancy=sellableNights>0?(occupiedNights/sellableNights*100):null;
     var adr=occupiedNights>0?(grossBookingSales/occupiedNights):0;
     var revpar=sellableNights>0?(grossBookingSales/sellableNights):0;
-    var cfg=unitConfig.filter(function(x){return x.unit_name===unit;})[0]||{};
     var sharedExpenses=unitClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Both';}).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
-    var cleaningFeeIncome=bookingCount*(Number(cfg.cleaning_fee||0)||0);
-    var laundryFeeIncome=bookingCount*(Number(cfg.laundry_fee||0)||0);
-    var managementFeeIncome=(grossBookingSales-sharedExpenses-cleaningFeeIncome-laundryFeeIncome)*((Number(cfg.service_fee_pct||0)||0)/100);
-    var unitExpenses=unitClaims.reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
+    var ownerExpenses=unitClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Owner';}).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
+    var cleaningFeeIncome=bookingCount*cfgMoney(cfg,'cleaning_fee');
+    var laundryFeeIncome=bookingCount*cfgMoney(cfg,'laundry_fee');
+    var profitPct=(Number(cfg.service_fee_pct||0)||0)/100;
+    var monthlyRent=cfgMoney(cfg,'monthly_rent');
+    var marketRentBaseline=cfgMoney(cfg,'market_rent_baseline');
+    var homestayProfit=grossBookingSales-sharedExpenses-cleaningFeeIncome-laundryFeeIncome;
+    var managementFeeIncome=model==='owner_profit_sharing'?(homestayProfit*profitPct):(model==='long_term_management'?(monthlyRent*profitPct):0);
+    var bookingRevenue=model==='rented_homestay'?grossBookingSales:0;
+    var companyRevenue=bookingRevenue+managementFeeIncome+cleaningFeeIncome+laundryFeeIncome;
+    var companyClaimExpenses=unitClaims.filter(companyInsightsClaimAffectsCompany).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
+    var monthlyRentCost=model==='rented_homestay'?monthlyRent:0;
+    var unitExpenses=companyClaimExpenses+monthlyRentCost;
+    var operatingProfitBeforeRent=grossBookingSales+cleaningFeeIncome+laundryFeeIncome-companyClaimExpenses;
+    var rentCoverage=monthlyRentCost>0?(operatingProfitBeforeRent/monthlyRentCost*100):null;
+    var marketBenchmarkDelta=marketRentBaseline>0?(operatingProfitBeforeRent-marketRentBaseline):null;
+    var ownerPayout=model==='owner_profit_sharing'?(homestayProfit-managementFeeIncome-ownerExpenses):0;
     var cleaningRelatedCost=unitClaims.filter(function(c){return companyInsightsExpenseBucket(c.category).label==='Cleaning-related';}).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
     var maintenanceCost=unitClaims.filter(function(c){return companyInsightsExpenseBucket(c.category).label==='Maintenance Cost';}).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
+    if(model==='long_term_management'){
+      bookingCount=0;occupiedNights=0;unavailableNights=0;sellableNights=0;occupancy=null;adr=0;revpar=0;grossBookingSales=0;cleaningFeeIncome=0;laundryFeeIncome=0;bookingRevenue=0;companyRevenue=managementFeeIncome;operatingProfitBeforeRent=managementFeeIncome-companyClaimExpenses;marketBenchmarkDelta=null;rentCoverage=null;
+    }
     return{
       unit:unit,
+      businessModel:model,
+      businessModelLabel:unitBusinessModelLabel(model),
       bookings:bookingCount,
       occupiedNights:occupiedNights,
       unavailableNights:unavailableNights,
       sellableNights:sellableNights,
       occupancy:occupancy,
+      occupancyStatus:companyInsightsOccupancyStatus(occupiedNights),
       adr:adr,
       revpar:revpar,
       grossBookingSales:grossBookingSales,
+      bookingRevenue:bookingRevenue,
       managementFeeIncome:managementFeeIncome,
       cleaningFeeIncome:cleaningFeeIncome,
       laundryFeeIncome:laundryFeeIncome,
-      companyIncome:managementFeeIncome+cleaningFeeIncome+laundryFeeIncome,
+      companyIncome:companyRevenue,
+      companyRevenue:companyRevenue,
       expenses:unitExpenses,
-      netContribution:(managementFeeIncome+cleaningFeeIncome+laundryFeeIncome)-unitExpenses,
+      monthlyRentCost:monthlyRentCost,
+      marketRentBaseline:marketRentBaseline,
+      marketRentSourceUrl:String(cfg.market_rent_source_url||''),
+      marketRentReviewedAt:String(cfg.market_rent_reviewed_at||''),
+      rentCoverage:rentCoverage,
+      marketBenchmarkDelta:marketBenchmarkDelta,
+      ownerPayout:ownerPayout,
+      netContribution:companyRevenue-unitExpenses,
       cleaningRelatedCost:cleaningRelatedCost,
       maintenanceCost:maintenanceCost
     };
-  });
+  }).filter(Boolean);
 }
 function companyInsightsExpenseRows(period){
-  var APPROVED_STATUSES=['Approved','Claimed','Auto-Approved','Company-Paid'];
   var totals={};
-  claims.forEach(function(c){
-    var claimPeriod=(c.expMonth||String(c.date||'').slice(0,7)||'').slice(0,7);
-    if(APPROVED_STATUSES.indexOf(c.status)<0||claimPeriod!==period)return;
+  companyInsightsApprovedClaims(period).forEach(function(c){
+    if(!companyInsightsClaimAffectsCompany(c))return;
     var bucket=companyInsightsExpenseBucket(c.category);
     if(!totals[bucket.label])totals[bucket.label]={label:bucket.label,value:0,color:bucket.color};
     totals[bucket.label].value+=(Number(c.amount)||0);
@@ -1185,10 +1272,28 @@ function companyInsightsBuildAlerts(current,previous){
   else alerts.push({tone:'good',title:'Healthy margin',detail:'Net profit remained positive with a '+pctFmt(current.profitMargin)+' margin on company revenue.'});
   return alerts.slice(0,4);
 }
+function companyInsightsBuildV1Alerts(current,previous){
+  var alerts=[];
+  var lowOcc=current.units.filter(function(u){return u.businessModel!=='long_term_management'&&u.occupiedNights<8;}).sort(function(a,b){return a.occupiedNights-b.occupiedNights;});
+  if(lowOcc.length)alerts.push({tone:'warn',title:'Unhealthy occupancy units',detail:lowOcc.slice(0,2).map(function(u){return u.unit+' '+u.occupiedNights+' night(s)';}).join(' / ')+' . Recheck weekday pricing and listing conversion.'});
+  var rentLoss=current.units.filter(function(u){return u.businessModel==='rented_homestay'&&u.netContribution<0;}).sort(function(a,b){return a.netContribution-b.netContribution;});
+  if(rentLoss.length)alerts.push({tone:'bad',title:'Rented unit loss',detail:rentLoss[0].unit+' is below break-even after tracked costs and rent: '+moneyFmt(rentLoss[0].netContribution)+'.'});
+  var weakMarket=current.units.filter(function(u){return u.businessModel==='owner_profit_sharing'&&u.marketBenchmarkDelta!==null&&u.marketBenchmarkDelta<0;}).sort(function(a,b){return a.marketBenchmarkDelta-b.marketBenchmarkDelta;});
+  if(weakMarket.length)alerts.push({tone:'warn',title:'Below market-rent baseline',detail:weakMarket[0].unit+' is '+moneyFmt(Math.abs(weakMarket[0].marketBenchmarkDelta))+' below the stored market rent baseline.'});
+  var unavailable=current.units.filter(function(u){return u.unavailableNights>=3;}).sort(function(a,b){return b.unavailableNights-a.unavailableNights;});
+  if(unavailable.length)alerts.push({tone:'info',title:'Unavailable-day impact',detail:unavailable[0].unit+' lost '+unavailable[0].unavailableNights+' sellable night(s) this month from HostPlatform unavailable blocks.'});
+  var maintenance=current.units.filter(function(u){return u.maintenanceCost>0;}).sort(function(a,b){return b.maintenanceCost-a.maintenanceCost;});
+  if(maintenance.length&&maintenance[0].maintenanceCost>=300)alerts.push({tone:'bad',title:'Maintenance spike',detail:maintenance[0].unit+' recorded '+moneyFmt(maintenance[0].maintenanceCost)+' in maintenance-related costs. Review repeat repair items.'});
+  if(current.netProfit<0||current.profitMargin<10||(previous&&current.netProfit<previous.netProfit))alerts.push({tone:'bad',title:'Margin compression',detail:(current.netProfit<0?'The month is running at a net loss after tracked expenses.':('Net profit softened versus '+previous.label+'.'))+' Watch expense-heavy units and low-occupancy inventory.'});
+  else alerts.push({tone:'good',title:'Healthy margin',detail:'Net profit remained positive with a '+pctFmt(current.profitMargin)+' margin on company revenue.'});
+  return alerts.slice(0,4);
+}
 function companyInsightsDecoratedMonth(period){
   var units=companyInsightsUnitRows(period);
   var expenses=companyInsightsExpenseRows(period);
   var companyRevenue=units.reduce(function(sum,u){return sum+u.companyIncome;},0);
+  var monthlyRentExpense=units.reduce(function(sum,u){return sum+u.monthlyRentCost;},0);
+  if(monthlyRentExpense>0)expenses.push({label:'Monthly Rent',value:monthlyRentExpense,color:'#7C3AED'});
   var companyExpenses=expenses.reduce(function(sum,row){return sum+row.value;},0);
   var occupiedTotal=units.reduce(function(sum,u){return sum+u.occupiedNights;},0);
   var sellableTotal=units.reduce(function(sum,u){return sum+u.sellableNights;},0);
@@ -1205,9 +1310,10 @@ function companyInsightsDecoratedMonth(period){
     sellableNights:sellableTotal,
     unavailableNights:units.reduce(function(sum,u){return sum+u.unavailableNights;},0),
     incomeMix:[
+      {label:'Booking Revenue',value:units.reduce(function(sum,u){return sum+u.bookingRevenue;},0),color:'#60a5fa'},
       {label:'Management Fee',value:units.reduce(function(sum,u){return sum+u.managementFeeIncome;},0),color:'#2563eb'},
-      {label:'Cleaning Fee',value:units.reduce(function(sum,u){return sum+u.cleaningFeeIncome;},0),color:'#0f766e'},
-      {label:'Laundry Fee',value:units.reduce(function(sum,u){return sum+u.laundryFeeIncome;},0),color:'#4f46e5'}
+      {label:'Cleaning Fee Revenue',value:units.reduce(function(sum,u){return sum+u.cleaningFeeIncome;},0),color:'#0f766e'},
+      {label:'Laundry Fee Revenue',value:units.reduce(function(sum,u){return sum+u.laundryFeeIncome;},0),color:'#4f46e5'}
     ],
     expenseBreakdown:expenses,
     units:units
@@ -1230,6 +1336,55 @@ function companyInsightsBarList(rows){
     var width=Math.max(6,Math.round((Number(r.value)||0)/max*100));
     return '<div class="ci-bar-row"><div class="ci-bar-label">'+esc(r.label)+'</div><div class="ci-bar-track"><div class="ci-bar-fill" style="width:'+width+'%;background:'+(r.color||'#2563eb')+'"></div></div><div class="ci-bar-val">'+moneyFmt(r.value)+'</div></div>';
   }).join('');
+}
+function companyInsightsGuideItems(){
+  return [
+    {title:'Net Profit / Loss',detail:'Company revenue after tracked company expenses. Use this first to see whether the month made money.'},
+    {title:'Company Revenue',detail:'Money the company earns from booking revenue, management fee, cleaning fee revenue, and laundry fee revenue.'},
+    {title:'Company Expenses',detail:'Money the company pays out for vendor/staff claims, admin costs, and monthly rent for rented homestay units.'},
+    {title:'Portfolio Occupancy',detail:'Occupied nights divided by sellable nights. It shows how full the portfolio was this month.'},
+    {title:'ADR',detail:'Average Daily Rate. This is accommodation revenue per occupied night.'},
+    {title:'RevPAR',detail:'Revenue per Available Room. This is accommodation revenue per sellable night, so it combines price and occupancy.'},
+    {title:'Revenue',detail:'For each unit, this is the company income assigned to that unit after the selected business model logic.'},
+    {title:'Expenses',detail:'For each unit, this is the company-affecting cost bucket used in the contribution calculation.'},
+    {title:'Net Contribution',detail:'Unit revenue minus unit expenses. Positive means the unit added profit to the company.'},
+    {title:'Benchmark',detail:'For owner profit sharing units, this compares the unit against the stored market rent baseline. It is a reference, not a booked amount.'},
+    {title:'Owner Payout',detail:'For owner profit sharing units, this shows the owner payout context after the company share is removed.'},
+    {title:'Business Model Badge',detail:'Rented units, owner profit sharing, long-term management, and MP Office are split so the same unit is not judged with the wrong formula.'}
+  ];
+}
+function companyInsightsGuideHtml(){
+  return '<div class="ci-chart-card"><div class="ci-chart-title">How To Read This Screen</div><div class="ci-chart-sub">Short definitions for the numbers shown in Company Insights.</div><div class="ci-alerts">'+companyInsightsGuideItems().map(function(item){return '<div class="ci-alert info"><div class="ci-alert-title">'+esc(item.title)+'</div><div class="ci-alert-copy">'+esc(item.detail)+'</div></div>';}).join('')+'</div></div>';
+}
+function companyInsightsDash(v){
+  return v===null||v===undefined?'--':v;
+}
+function companyInsightsBenchmarkText(u){
+  if(u.businessModel==='rented_homestay')return u.rentCoverage===null?'No rent set':pctFmt(u.rentCoverage)+' rent cover';
+  if(u.businessModel==='owner_profit_sharing')return u.marketRentBaseline>0?(moneyFmt(u.marketBenchmarkDelta)+' vs baseline'):'No market baseline';
+  if(u.businessModel==='long_term_management')return 'Tenant utilities excluded';
+  return '--';
+}
+function companyInsightsUnitRowHtml(u,leaders){
+  var tags=companyInsightsUnitTags(u,leaders);
+  tags.unshift({label:u.businessModelLabel,tone:u.businessModel==='rented_homestay'?'warn':(u.businessModel==='long_term_management'?'info':'good')});
+  if(u.businessModel!=='long_term_management')tags.push({label:u.occupancyStatus.label,tone:u.occupancyStatus.tone});
+  var tagHtml=tags.map(function(t){return '<span class="ci-tag '+t.tone+'">'+esc(t.label)+'</span>';}).join('');
+  return '<tr><td><div class="ci-unit-name">'+esc(u.unit)+'</div><div class="ci-unit-tags">'+tagHtml+'</div></td><td class="num">'+u.bookings+'</td><td class="num">'+u.occupiedNights+'</td><td class="num">'+companyInsightsDash(u.unavailableNights)+'</td><td class="num">'+pctFmtDash(u.occupancy)+'</td><td class="num">'+(u.businessModel==='long_term_management'?'--':moneyFmt(u.adr))+'</td><td class="num">'+(u.businessModel==='long_term_management'?'--':moneyFmt(u.revpar))+'</td><td class="num">'+moneyFmt(u.companyRevenue)+'</td><td class="num">'+moneyFmt(u.expenses)+'</td><td class="num" style="font-weight:700;color:'+(u.netContribution>=0?'#065f46':'#991b1b')+'">'+moneyFmt(u.netContribution)+'</td><td>'+esc(companyInsightsBenchmarkText(u))+'</td></tr>';
+}
+function companyInsightsUnitCardHtml(u,leaders){
+  var tags=companyInsightsUnitTags(u,leaders);
+  tags.unshift({label:u.businessModelLabel,tone:u.businessModel==='rented_homestay'?'warn':(u.businessModel==='long_term_management'?'info':'good')});
+  if(u.businessModel!=='long_term_management')tags.push({label:u.occupancyStatus.label,tone:u.occupancyStatus.tone});
+  var tagHtml=tags.map(function(t){return '<span class="ci-tag '+t.tone+'">'+esc(t.label)+'</span>';}).join('');
+  return '<div class="ci-unit-card"><div class="ci-unit-top"><div><div class="ci-unit-name">'+esc(u.unit)+'</div><div class="ci-unit-tags">'+tagHtml+'</div></div><div style="text-align:right"><div class="ci-kicker">Net Contribution</div><div class="ci-value" style="font-size:17px;color:'+(u.netContribution>=0?'#065f46':'#991b1b')+'">'+moneyFmt(u.netContribution)+'</div></div></div><div class="ci-unit-metrics"><div class="ci-metric"><div class="lbl">Revenue</div><div class="val">'+moneyFmt(u.companyRevenue)+'</div></div><div class="ci-metric"><div class="lbl">Expenses</div><div class="val">'+moneyFmt(u.expenses)+'</div></div><div class="ci-metric"><div class="lbl">Occ Nights</div><div class="val">'+u.occupiedNights+'</div></div><div class="ci-metric"><div class="lbl">Occupancy</div><div class="val">'+pctFmtDash(u.occupancy)+'</div></div><div class="ci-metric"><div class="lbl">ADR</div><div class="val">'+(u.businessModel==='long_term_management'?'--':moneyFmt(u.adr))+'</div></div><div class="ci-metric"><div class="lbl">RevPAR</div><div class="val">'+(u.businessModel==='long_term_management'?'--':moneyFmt(u.revpar))+'</div></div><div class="ci-metric"><div class="lbl">Benchmark</div><div class="val">'+esc(companyInsightsBenchmarkText(u))+'</div></div><div class="ci-metric"><div class="lbl">Owner Payout</div><div class="val">'+(u.businessModel==='owner_profit_sharing'?moneyFmt(u.ownerPayout):'--')+'</div></div></div></div>';
+}
+function companyInsightsUnitGroupHtml(title,subtitle,rows,leaders){
+  var sorted=rows.slice().sort(function(a,b){return b.netContribution-a.netContribution;});
+  var empty='<div class="ci-note" style="margin-top:8px">No units in this group yet.</div>';
+  var tableRows=sorted.map(function(u){return companyInsightsUnitRowHtml(u,leaders);}).join('');
+  var cards=sorted.map(function(u){return companyInsightsUnitCardHtml(u,leaders);}).join('');
+  return '<div style="margin-top:12px"><div class="ci-unit-head"><div><div class="ci-title" style="font-size:13px">'+esc(title)+'</div><div class="ci-sub">'+esc(subtitle)+'</div></div></div>'+(sorted.length?'<div class="ci-desktop-only"><table class="ci-unit-table"><thead><tr><th>Unit</th><th class="num">Bookings</th><th class="num">Occ Nights</th><th class="num">Unavailable</th><th class="num">Occupancy</th><th class="num">ADR</th><th class="num">RevPAR</th><th class="num">Revenue</th><th class="num">Expenses</th><th class="num">Net</th><th>Benchmark</th></tr></thead><tbody>'+tableRows+'</tbody></table></div><div class="ci-mobile-only ci-unit-cards">'+cards+'</div>':empty)+'</div>';
 }
 function companyInsightsTrendChart(){
   var periods=companyInsightsPeriods();
@@ -1259,27 +1414,33 @@ function companyInsightsScreenHtml(){
   var current=companyInsightsDecoratedMonth(companyInsightPeriod);
   var previousPeriod=periods[Math.max(0,periods.indexOf(current.period)-1)]||'';
   var previous=previousPeriod?companyInsightsDecoratedMonth(previousPeriod):null;
-  current.alerts=companyInsightsBuildAlerts(current,previous);
+  current.alerts=companyInsightsBuildV1Alerts(current,previous);
   var periodOpts=periods.map(function(period){return '<option value="'+period+'"'+(period===current.period?' selected':'')+'>'+companyInsightsMonthLabel(period)+'</option>';}).join('');
   var profitCls=current.netProfit<0?' down':'';
   var incomeHtml=companyInsightsBarList(current.incomeMix);
   var expenseHtml=companyInsightsBarList(current.expenseBreakdown);
-  var unitRows=current.units.slice().sort(function(a,b){return b.netContribution-a.netContribution;});
-  var tableRows=unitRows.map(function(u){
-    var tags=companyInsightsUnitTags(u,current.leaders).map(function(t){return '<span class="ci-tag '+t.tone+'">'+t.label+'</span>';}).join('');
-    return '<tr><td><div class="ci-unit-name">'+esc(u.unit)+'</div><div class="ci-unit-tags">'+tags+'</div></td><td class="num">'+u.bookings+'</td><td class="num">'+u.occupiedNights+'</td><td class="num">'+u.unavailableNights+'</td><td class="num">'+pctFmtDash(u.occupancy)+'</td><td class="num">'+moneyFmt(u.adr)+'</td><td class="num">'+moneyFmt(u.revpar)+'</td><td class="num">'+moneyFmt(u.companyIncome)+'</td><td class="num">'+moneyFmt(u.expenses)+'</td><td class="num" style="font-weight:700;color:'+(u.netContribution>=0?'#065f46':'#991b1b')+'">'+moneyFmt(u.netContribution)+'</td></tr>';
-  }).join('');
-  var unitCards=unitRows.map(function(u){
-    var tags=companyInsightsUnitTags(u,current.leaders).map(function(t){return '<span class="ci-tag '+t.tone+'">'+t.label+'</span>';}).join('');
-    return '<div class="ci-unit-card"><div class="ci-unit-top"><div><div class="ci-unit-name">'+esc(u.unit)+'</div><div class="ci-unit-tags">'+tags+'</div></div><div style="text-align:right"><div class="ci-kicker">Net Contribution</div><div class="ci-value" style="font-size:17px;color:'+(u.netContribution>=0?'#065f46':'#991b1b')+'">'+moneyFmt(u.netContribution)+'</div></div></div><div class="ci-unit-metrics"><div class="ci-metric"><div class="lbl">Bookings</div><div class="val">'+u.bookings+'</div></div><div class="ci-metric"><div class="lbl">Occupied Nights</div><div class="val">'+u.occupiedNights+'</div></div><div class="ci-metric"><div class="lbl">Unavailable Nights</div><div class="val">'+u.unavailableNights+'</div></div><div class="ci-metric"><div class="lbl">Occupancy</div><div class="val">'+pctFmtDash(u.occupancy)+'</div></div><div class="ci-metric"><div class="lbl">ADR</div><div class="val">'+moneyFmt(u.adr)+'</div></div><div class="ci-metric"><div class="lbl">RevPAR</div><div class="val">'+moneyFmt(u.revpar)+'</div></div><div class="ci-metric"><div class="lbl">Company Income</div><div class="val">'+moneyFmt(u.companyIncome)+'</div></div><div class="ci-metric"><div class="lbl">Expenses</div><div class="val">'+moneyFmt(u.expenses)+'</div></div></div></div>';
-  }).join('');
+  var rentedUnits=current.units.filter(function(u){return u.businessModel==='rented_homestay';});
+  var ownerUnits=current.units.filter(function(u){return u.businessModel==='owner_profit_sharing';});
+  var longTermUnits=current.units.filter(function(u){return u.businessModel==='long_term_management';});
+  var groupedUnitsHtml=companyInsightsUnitGroupHtml('Rented Homestay Units','Shows booking revenue, direct costs, monthly rent, net profit after rent, and rent coverage.',rentedUnits,current.leaders)+companyInsightsUnitGroupHtml('Owner Profit Sharing Units','Shows management fee income, owner payout context, and market rent baseline comparison.',ownerUnits,current.leaders)+companyInsightsUnitGroupHtml('Long-term Management Units','Shows management fee income only. Tenant-paid utilities are excluded from company expenses.',longTermUnits,current.leaders);
   var alertHtml=current.alerts.map(function(a){return '<div class="ci-alert '+(a.tone||'info')+'"><div class="ci-alert-title">'+esc(a.title)+'</div><div class="ci-alert-copy">'+esc(a.detail)+'</div></div>';}).join('');
-  return '<div class="scr"><div class="ci-shell"><div class="ci-note">Manager dashboard only. HostPlatform type-6 rows are treated as generic unavailable days in this first version.</div><div class="ci-section"><div class="ci-topline"><div><div class="ci-title">Company Monthly Insights</div><div class="ci-sub">Manager view for company-level performance, unit contribution, and occupancy impact.</div></div><div class="ci-period"><label class="fl">Month</label><select class="fi" onchange="setCompanyInsightPeriod(this.value)">'+periodOpts+'</select></div></div><div class="ci-summary" style="margin-top:10px"><div class="ci-card profit'+profitCls+'"><div class="ci-kicker">Net Profit / Loss</div><div class="ci-value">'+moneyFmt(current.netProfit)+'</div><div class="ci-foot">'+(previous?('vs '+previous.label+' '+moneyFmt(current.netProfit-previous.netProfit)):'Computed from company revenue minus tracked expenses')+'</div></div><div class="ci-card revenue"><div class="ci-kicker">Company Revenue</div><div class="ci-value">'+moneyFmt(current.companyRevenue)+'</div><div class="ci-foot">Management fee + cleaning fee + laundry fee</div></div><div class="ci-card"><div class="ci-kicker">Portfolio Occupancy</div><div class="ci-value">'+pctFmtDash(current.portfolioOccupancy)+'</div><div class="ci-foot">'+current.occupiedNights+' occupied night(s) across '+current.sellableNights+' sellable night(s)</div></div></div><div class="ci-note" style="margin-top:10px">Gross booking sales for <b>'+esc(current.label)+'</b> are <b>'+moneyFmt(current.grossBookingSales)+'</b>. Profit margin is <b>'+pctFmt(current.profitMargin)+'</b>. Imported unavailable nights this month: <b>'+current.unavailableNights+'</b>.</div></div>'+companyInsightsTrendChart()+'<div class="ci-grid two-col"><div class="ci-chart-card"><div class="ci-chart-title">Income Drivers</div><div class="ci-chart-sub">Recurring company income generated from the active units in the selected month.</div><div class="ci-bar-list">'+incomeHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Portfolio Capacity</div><div class="ci-chart-sub">Occupancy uses sellable nights after HostPlatform unavailable days are removed.</div><div class="ci-kpi-strip"><div class="ci-mini"><div class="ci-kicker">Occupied Nights</div><div class="ci-value">'+current.occupiedNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Unavailable Nights</div><div class="ci-value">'+current.unavailableNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Sellable Nights</div><div class="ci-value">'+current.sellableNights+'</div></div></div></div><div class="ci-chart-card"><div class="ci-chart-title">Expense Breakdown</div><div class="ci-chart-sub">Tracked claim categories that compressed margin in the selected month.</div><div class="ci-bar-list">'+expenseHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Interpretation</div><div class="ci-chart-sub">How to read this month quickly.</div><div class="ci-alert info"><div class="ci-alert-title">Top cards</div><div class="ci-alert-copy">Start with profit, revenue, and occupancy before drilling into unit rows.</div></div><div class="ci-alert warn"><div class="ci-alert-title">Unit ranking</div><div class="ci-alert-copy">Net contribution ranks the units after tracked expenses, not just bookings.</div></div><div class="ci-alert good"><div class="ci-alert-title">Unavailable days</div><div class="ci-alert-copy">Type-6 HostPlatform rows now reduce sellable nights instead of making occupancy look artificially weak.</div></div></div></div><div class="ci-section"><div class="ci-unit-head"><div><div class="ci-title" style="font-size:14px">Unit Performance</div><div class="ci-sub">Occupancy uses month sellable nights after imported unavailable blocks are removed.</div></div><div class="ci-unit-hint">Desktop shows a ranked table. Narrow screens switch to stacked cards.</div></div><div class="ci-desktop-only"><table class="ci-unit-table"><thead><tr><th>Unit</th><th class="num">Bookings</th><th class="num">Occ Nights</th><th class="num">Unavailable</th><th class="num">Occupancy</th><th class="num">ADR</th><th class="num">RevPAR</th><th class="num">Company Income</th><th class="num">Expenses</th><th class="num">Net Contribution</th></tr></thead><tbody>'+tableRows+'</tbody></table></div><div class="ci-mobile-only ci-unit-cards">'+unitCards+'</div></div><div class="ci-section"><div class="ci-title" style="font-size:14px">Alerts</div><div class="ci-sub">Action-oriented prompts for the next month, not just historical reporting.</div><div class="ci-alerts" style="margin-top:10px">'+alertHtml+'</div></div></div></div>';
+  return '<div class="scr"><div class="ci-shell"><div class="ci-note">Manager dashboard only. MP Office is excluded from homestay unit performance and counted as company/admin expense only.</div><div class="ci-section"><div class="ci-topline"><div><div class="ci-title">Company Monthly Insights</div><div class="ci-sub">Manager view for company profit/loss, business-model performance, and occupancy impact.</div></div><div class="ci-period"><label class="fl">Month</label><select class="fi" onchange="setCompanyInsightPeriod(this.value)">'+periodOpts+'</select></div></div><div class="ci-summary" style="margin-top:10px"><div class="ci-card profit'+profitCls+'"><div class="ci-kicker">Net Profit / Loss</div><div class="ci-value">'+moneyFmt(current.netProfit)+'</div><div class="ci-foot">'+(previous?('vs '+previous.label+' '+moneyFmt(current.netProfit-previous.netProfit)):'Company revenue minus tracked company expenses')+'</div></div><div class="ci-card revenue"><div class="ci-kicker">Company Revenue</div><div class="ci-value">'+moneyFmt(current.companyRevenue)+'</div><div class="ci-foot">Booking revenue for rented units, management fee, cleaning fee revenue, and laundry fee revenue</div></div><div class="ci-card expense"><div class="ci-kicker">Company Expenses</div><div class="ci-value">'+moneyFmt(current.companyExpenses)+'</div><div class="ci-foot">Vendor/staff claims, admin costs, and rented-unit monthly rent</div></div><div class="ci-card"><div class="ci-kicker">Portfolio Occupancy</div><div class="ci-value">'+pctFmtDash(current.portfolioOccupancy)+'</div><div class="ci-foot">'+current.occupiedNights+' occupied night(s) across '+current.sellableNights+' sellable night(s)</div></div></div><div class="ci-note" style="margin-top:10px">Gross booking sales for <b>'+esc(current.label)+'</b> are <b>'+moneyFmt(current.grossBookingSales)+'</b>. Profit margin is <b>'+pctFmt(current.profitMargin)+'</b>. Imported unavailable nights this month: <b>'+current.unavailableNights+'</b>.</div></div>'+companyInsightsGuideHtml()+companyInsightsTrendChart()+'<div class="ci-grid two-col"><div class="ci-chart-card"><div class="ci-chart-title">Income Drivers</div><div class="ci-chart-sub">Company revenue split by booking income, management fee, and cleaning/laundry fee revenue.</div><div class="ci-bar-list">'+incomeHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Portfolio Capacity</div><div class="ci-chart-sub">Occupancy uses sellable nights after HostPlatform unavailable days are removed.</div><div class="ci-kpi-strip"><div class="ci-mini"><div class="ci-kicker">Occupied Nights</div><div class="ci-value">'+current.occupiedNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Unavailable Nights</div><div class="ci-value">'+current.unavailableNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Sellable Nights</div><div class="ci-value">'+current.sellableNights+'</div></div></div></div><div class="ci-chart-card"><div class="ci-chart-title">Expense Breakdown</div><div class="ci-chart-sub">Company-affecting claims plus rented-unit monthly rent.</div><div class="ci-bar-list">'+expenseHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Interpretation</div><div class="ci-chart-sub">How to read this month quickly.</div><div class="ci-alert info"><div class="ci-alert-title">RevPAR</div><div class="ci-alert-copy">High RevPAR means the unit combines price and occupancy well. Low RevPAR means weak demand, low pricing, or both.</div></div><div class="ci-alert warn"><div class="ci-alert-title">Occupancy status</div><div class="ci-alert-copy">Below 8 nights is unhealthy, 8-14 normal, 15-20 good, and above 20 best.</div></div><div class="ci-alert good"><div class="ci-alert-title">Market baseline</div><div class="ci-alert-copy">Market rent baseline is a benchmark only. It is not counted as revenue or expense.</div></div></div></div><div class="ci-section"><div class="ci-unit-head"><div><div class="ci-title" style="font-size:14px">Unit Performance By Business Model</div><div class="ci-sub">Rented units, owner profit-sharing units, and long-term management units use different profit logic.</div></div><div class="ci-unit-hint">Desktop shows grouped tables. Narrow screens switch to stacked cards.</div></div>'+groupedUnitsHtml+'</div><div class="ci-section"><div class="ci-title" style="font-size:14px">Alerts</div><div class="ci-sub">Action-oriented prompts for the next month, not just historical reporting.</div><div class="ci-alerts" style="margin-top:10px">'+alertHtml+'</div></div></div></div>';
 }
 function expMonthSelect(selVal){
   var now=new Date();var opts=[];
   for(var i=-3;i<=1;i++){var d=new Date(now.getFullYear(),now.getMonth()+i,1);var v=d.getFullYear()+'-'+(d.getMonth()+1<10?'0':'')+(d.getMonth()+1);var lbl=MONTHS[(d.getMonth()+1<10?'0':'')+(d.getMonth()+1)]+' '+d.getFullYear();opts.push('<option value="'+v+'"'+(selVal===v?' selected':'')+'>'+lbl+'</option>');}
   return'<div class="fg"><label class="fl">Expense month (belongs to)</label><select class="fi" id="f-expmonth">'+opts.join('')+'</select></div>';
+}
+function setExpenseMonthValue(selectId,val){
+  var sel=typeof selectId==='string'?document.getElementById(selectId):selectId;
+  if(!sel||!val)return false;
+  for(var i=0;i<sel.options.length;i++){
+    if(sel.options[i].value===val){
+      sel.selectedIndex=i;
+      return true;
+    }
+  }
+  return false;
 }
 function normalizeAdminScreenName(screen){
   if(isSystemAdmin&&screen==='adminDash')return'adminUsers';
@@ -1302,11 +1463,12 @@ function goBack(){
 
 // ===== RECEIPT UPLOAD =====
 function togglePayType(t){
-  var d=document.getElementById('f-desc'),a=document.getElementById('f-amount'),dt=document.getElementById('f-date'),c=document.getElementById('f-cat'),u=document.getElementById('f-unit');
-  var sv={desc:d?d.value:'',amt:a?a.value:'',date:dt?dt.value:'',cat:c?c.value:'',unit:u?u.value:''};
+  var d=document.getElementById('f-desc'),a=document.getElementById('f-amount'),dt=document.getElementById('f-date'),c=document.getElementById('f-cat'),u=document.getElementById('f-unit'),em=document.getElementById('f-expmonth');
+  var sv={desc:d?d.value:'',amt:a?a.value:'',date:dt?dt.value:'',cat:c?c.value:'',unit:u?u.value:'',expMonth:em?em.value:''};
   mgrFormPayType=t;render();
-  d=document.getElementById('f-desc');a=document.getElementById('f-amount');dt=document.getElementById('f-date');c=document.getElementById('f-cat');u=document.getElementById('f-unit');
+  d=document.getElementById('f-desc');a=document.getElementById('f-amount');dt=document.getElementById('f-date');c=document.getElementById('f-cat');u=document.getElementById('f-unit');em=document.getElementById('f-expmonth');
   if(d)d.value=sv.desc;if(a)a.value=sv.amt;if(dt)dt.value=sv.date;if(c)c.value=sv.cat;if(u)u.value=sv.unit;
+  if(em&&sv.expMonth)setExpenseMonthValue(em,sv.expMonth);
 }
 window.togglePayType=togglePayType;
 function openFilePicker(id,opts,onchange){
@@ -2274,10 +2436,10 @@ async function submitNewClaim(asDraft){
     var exactDup=activeClaimDbDuplicate(myName(),dtv||new Date().toISOString().slice(0,10),av||0,dv||'(untitled)');
     if(exactDup){toast(dbDuplicateClaimMessage(exactDup));return;}
   }
+  var emv=document.getElementById('f-expmonth');var expM=emv?emv.value:(dtv||new Date().toISOString().slice(0,10)).slice(0,7);
   claimSubmitBusy=true;render();
   try{
     var cid=await getNextClaimId('HE');
-    var emv=document.getElementById('f-expmonth');var expM=emv?emv.value:(dtv||new Date().toISOString().slice(0,10)).slice(0,7);
     var nc={id:cid,emp:myName(),unit:'',category:cv,desc:dv||'(untitled)',amount:av||0,date:dtv||new Date().toISOString().slice(0,10),expMonth:expM,status:asDraft?'Draft':'Submitted',rejectReason:'',slipRef:'',receiptRefs:'',paymentSlipRefs:'',payType:'employee',submittedBy:'self',invoiceNumber:aiResult?(aiResult.invoice_number||aiResult.reference_number||''):'',merchantName:aiResult?(aiResult.merchant_name||''):'',aiRaw:aiResult||{},aiConfidence:aiResult?(aiResult.confidence||0):0,sourceType:aiResult?'ai_scan':'manual'};
     if(pendingFiles.length){
       var receiptRefs='';
@@ -2344,10 +2506,10 @@ async function submitMgrClaim(){
   }
   var exactDup=activeClaimDbDuplicate(isCompany?'':mgrFormEmp,dtv,av,dv);
   if(exactDup){toast(dbDuplicateClaimMessage(exactDup));return;}
+  var emv=document.getElementById('f-expmonth');var expM=emv?emv.value:dtv.slice(0,7);
   mgrSubmitBusy=true;render();
   try{
     var cid=await getNextClaimId(isCompany?'CO':'MGR');
-    var emv=document.getElementById('f-expmonth');var expM=emv?emv.value:dtv.slice(0,7);
     var nc={id:cid,emp:isCompany?'':mgrFormEmp,unit:uv,hpUnitId:unitHpId(uv),category:cv,desc:dv,amount:av,date:dtv,expMonth:expM,status:isCompany?'Company-Paid':'Auto-Approved',rejectReason:'',slipRef:'',receiptRefs:'',paymentSlipRefs:'',payType:mgrFormPayType,submittedBy:'manager',chargedTo:isMP?'':charged.value,invoiceNumber:aiResult?(aiResult.invoice_number||aiResult.reference_number||''):'',merchantName:aiResult?(aiResult.merchant_name||''):'',aiRaw:aiResult||{},aiConfidence:aiResult?(aiResult.confidence||0):0,sourceType:aiResult?'ai_scan':'manual'};
     if(pendingFiles.length){
       var receiptRefs='';
@@ -3072,14 +3234,18 @@ function render(){
       var cfg2=unitConfig.filter(function(x){return x.unit_name===u;})[0]||{};
       var cFee=parseFloat(cfg2.cleaning_fee||0).toFixed(2);
       var lFee=parseFloat(cfg2.laundry_fee||0).toFixed(2);
-      return'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:13px;font-weight:600;color:#111">'+u+'</div><div style="font-size:10px;color:#6b7280">'+(cfg2.owner_name||'No owner')+' · Cleaning RM '+cFee+' · Laundry RM '+lFee+' · Profit Sharing '+(cfg2.service_fee_pct||0)+'%</div></div><span style="font-size:11px;color:#2563eb;cursor:pointer;text-decoration:underline" onclick="editUnitCfg(\''+u+'\')">Edit</span></div>';
+      var model=unitBusinessModel(u,cfg2);
+      var rent=cfgMoney(cfg2,'monthly_rent');
+      var baseline=cfgMoney(cfg2,'market_rent_baseline');
+      return'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:13px;font-weight:600;color:#111">'+u+'</div><div style="font-size:10px;color:#6b7280">'+unitBusinessModelLabel(model)+' · '+(cfg2.owner_name||'No owner')+' · Cleaning RM '+cFee+' · Laundry RM '+lFee+' · Profit Sharing '+(cfg2.service_fee_pct||0)+'%'+(rent?' · Monthly rent/base '+moneyFmt(rent):'')+(baseline?' · Market baseline '+moneyFmt(baseline):'')+'</div></div><span style="font-size:11px;color:#2563eb;cursor:pointer;text-decoration:underline" onclick="editUnitCfg(\''+u+'\')">Edit</span></div>';
     }).join('');
     ms.innerHTML='<div class="scr"><div class="info-box" style="background:#dbeafe"><div style="font-size:11px;color:#1d4ed8">Assign owner, cleaning/laundry rates, and profit sharing % for each unit.</div></div>'+ucRows+'</div>';
   }
   else if(S==='unitConfigForm'){
     tbt_el.textContent='Edit Unit Config';bb_el.style.display='block';adminNav(isSystemAdmin?'units':'report');
     var ucfg=editingUnitCfg||{};
-    ms.innerHTML='<div class="scr">'+(ucFormError?'<div style="background:#fee2e2;color:#991b1b;font-size:12px;padding:8px;border-radius:8px;margin-bottom:8px">'+ucFormError+'</div>':'')+'<div class="info-box" style="background:#f3f4f6"><div style="font-size:12px;font-weight:600;color:#374151">Unit: '+(ucfg.unit_name||'')+'</div></div><div class="fg"><label class="fl">Owner Name</label><input class="fi" id="ucf-owner" value="'+(ucfg.owner_name||'')+'" placeholder="e.g. Ahmad"/></div><div class="tcol"><div class="fg"><label class="fl">Cleaning Fee (RM)</label><input class="fi" id="ucf-cf" type="number" step="0.01" value="'+parseFloat(ucfg.cleaning_fee||0).toFixed(2)+'"/></div><div class="fg"><label class="fl">Laundry Fee (RM)</label><input class="fi" id="ucf-lf" type="number" step="0.01" value="'+parseFloat(ucfg.laundry_fee||0).toFixed(2)+'"/></div></div><div class="fg"><label class="fl">Profit Sharing %</label><input class="fi" id="ucf-svc" type="number" step="0.01" value="'+(ucfg.service_fee_pct||0)+'"/></div><button class="pbtn btn-s" onclick="saveUnitCfg()">Save Changes</button><button class="pbtn btn-o" style="margin-top:6px" onclick="ss(\'unitConfigList\',\''+(isSystemAdmin?'adminUnits':'reportHome')+'\')">Cancel</button></div>';
+    var bm=unitBusinessModel(ucfg.unit_name,ucfg);
+    ms.innerHTML='<div class="scr">'+(ucFormError?'<div style="background:#fee2e2;color:#991b1b;font-size:12px;padding:8px;border-radius:8px;margin-bottom:8px">'+ucFormError+'</div>':'')+'<div class="info-box" style="background:#f3f4f6"><div style="font-size:12px;font-weight:600;color:#374151">Unit: '+(ucfg.unit_name||'')+'</div></div><div class="fg"><label class="fl">Business Model</label><select class="fi" id="ucf-model">'+unitBusinessModelOptions(bm)+'</select></div><div class="fg"><label class="fl">Owner Name</label><input class="fi" id="ucf-owner" value="'+(ucfg.owner_name||'')+'" placeholder="e.g. Ahmad"/></div><div class="tcol"><div class="fg"><label class="fl">Cleaning Fee Revenue (RM)</label><input class="fi" id="ucf-cf" type="number" step="0.01" value="'+parseFloat(ucfg.cleaning_fee||0).toFixed(2)+'"/></div><div class="fg"><label class="fl">Laundry Fee Revenue (RM)</label><input class="fi" id="ucf-lf" type="number" step="0.01" value="'+parseFloat(ucfg.laundry_fee||0).toFixed(2)+'"/></div></div><div class="tcol"><div class="fg"><label class="fl">Profit Sharing / Management Fee %</label><input class="fi" id="ucf-svc" type="number" step="0.01" value="'+(ucfg.service_fee_pct||0)+'"/></div><div class="fg"><label class="fl">Monthly Rent / Tenancy Base (RM)</label><input class="fi" id="ucf-rent" type="number" step="0.01" value="'+parseFloat(ucfg.monthly_rent||0).toFixed(2)+'"/></div></div><div class="tcol"><div class="fg"><label class="fl">Market Rent Baseline (RM)</label><input class="fi" id="ucf-market" type="number" step="0.01" value="'+parseFloat(ucfg.market_rent_baseline||0).toFixed(2)+'"/></div><div class="fg"><label class="fl">Market Rent Reviewed At</label><input class="fi" id="ucf-market-date" type="date" value="'+(ucfg.market_rent_reviewed_at||'')+'"/></div></div><div class="fg"><label class="fl">Market Rent Source URL</label><input class="fi" id="ucf-market-url" value="'+esc(ucfg.market_rent_source_url||'')+'" placeholder="PropertyGuru / iProperty reference URL"/></div><div class="info-box" style="background:#eff6ff"><div style="font-size:11px;color:#1d4ed8">Use low-quartile market rent as the suggested baseline. Manager records the final accepted value here.</div></div><button class="pbtn btn-s" onclick="saveUnitCfg()">Save Changes</button><button class="pbtn btn-o" style="margin-top:6px" onclick="ss(\'unitConfigList\',\''+(isSystemAdmin?'adminUnits':'reportHome')+'\')">Cancel</button></div>';
   }
   else if(S==='reservationSync'){
     tbt_el.textContent='Reservation Sync';bb_el.style.display='block';adminNav(isSystemAdmin?'units':'report');
@@ -3152,23 +3318,28 @@ window.saveUnitType=async function(){
 };
 window.editUnitCfg=function(unitName){editingUnitCfg=unitConfig.filter(function(x){return x.unit_name===unitName;})[0]||{unit_name:unitName};ucFormError='';ss('unitConfigForm','unitConfigList');};
 window.saveUnitCfg=async function(){
-  var owner=document.getElementById('ucf-owner'),svc=document.getElementById('ucf-svc'),cf=document.getElementById('ucf-cf'),lf=document.getElementById('ucf-lf');
+  var owner=document.getElementById('ucf-owner'),svc=document.getElementById('ucf-svc'),cf=document.getElementById('ucf-cf'),lf=document.getElementById('ucf-lf'),bm=document.getElementById('ucf-model'),rent=document.getElementById('ucf-rent'),market=document.getElementById('ucf-market'),marketUrl=document.getElementById('ucf-market-url'),marketDate=document.getElementById('ucf-market-date');
   if(!editingUnitCfg||!editingUnitCfg.unit_name){toast('No unit selected');return;}
   var saved=await dbUpsertUnitConfig(
     editingUnitCfg.unit_name,
     owner?owner.value.trim():'',
     parseFloat(svc?svc.value:0)||0,
     parseFloat(cf?cf.value:0)||0,
-    parseFloat(lf?lf.value:0)||0
+    parseFloat(lf?lf.value:0)||0,
+    bm?bm.value:'owner_profit_sharing',
+    parseFloat(rent?rent.value:0)||0,
+    parseFloat(market?market.value:0)||0,
+    marketUrl?marketUrl.value.trim():'',
+    marketDate&&marketDate.value?marketDate.value:null
   );
   if(saved&&saved.ok){
     await loadUnitConfig();
-    await logAdminAction('unit-config.saved',{unit_name:editingUnitCfg.unit_name,owner_name:owner?owner.value.trim():'',cleaning_fee:parseFloat(cf?cf.value:0)||0,laundry_fee:parseFloat(lf?lf.value:0)||0,profit_sharing_pct:parseFloat(svc?svc.value:0)||0});
+    await logAdminAction('unit-config.saved',{unit_name:editingUnitCfg.unit_name,owner_name:owner?owner.value.trim():'',business_model:bm?bm.value:'owner_profit_sharing',cleaning_fee:parseFloat(cf?cf.value:0)||0,laundry_fee:parseFloat(lf?lf.value:0)||0,profit_sharing_pct:parseFloat(svc?svc.value:0)||0,monthly_rent:parseFloat(rent?rent.value:0)||0,market_rent_baseline:parseFloat(market?market.value:0)||0});
     editingUnitCfg=null;
     toast(saved.missingRateColumns?'Saved (DB migration needed for fee fields)':'Saved');
     ss('unitConfigList',isSystemAdmin?'adminUnits':'reportHome');
   }else{
-    ucFormError='Save failed';
+    ucFormError=saved&&saved.missingDashboardColumns?'Save failed. Run supabase-management-dashboard-v1.sql in test first.':'Save failed';
     render();
   }
 };
@@ -3345,7 +3516,7 @@ window.mgrScanReceipt=function(mode){
         var unitVal=selectedUnit||(ai.suggested&&ai.suggested.unit)||ai.unit_hint||'';
         if(u&&unitVal){for(var j=0;j<u.options.length;j++){if(u.options[j].value===unitVal){u.selectedIndex=j;break;}}toggleChargeTo(u.value,'f-charge-wrap');}
         var expVal=(ai.suggested&&ai.suggested.expense_month)||ai.expense_month||'';
-        if(em&&expVal){for(var k=0;k<em.options.length;k++){if(em.options[k].value===expVal){em.selectedIndex=k;break;}}}
+        if(em&&expVal)setExpenseMonthValue(em,expVal);
         if(ai.suggested&&ai.suggested.unit_warning)toast(ai.suggested.unit_warning);
         if(ai.duplicate_claims&&ai.duplicate_claims.length){toast(duplicateClaimMessage(ai));}
         else{toast('AI filled: '+ai.summary);}

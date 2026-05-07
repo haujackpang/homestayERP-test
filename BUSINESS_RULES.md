@@ -64,6 +64,22 @@
 - Do not rely on unit type for cleaning/laundry rates because the same property and same unit type may still have different rates.
 - `Service Fee %` wording must be shown as `Profit Sharing %`.
 - Existing database column `service_fee_pct` may remain as implementation detail unless a migration is explicitly approved.
+- Management Dashboard V1 uses Unit Configuration `Business Model` to split units into `Rented Homestay`, `Owner Profit Sharing`, `Long-term Management`, and `Company Office/Excluded`.
+- `MP Office` must be `Company Office/Excluded`: it can count as company/admin expense, but must not count as homestay occupancy, ADR, RevPAR, booking nights, or unit ranking.
+- `monthly_rent` means company rent cost for `Rented Homestay`; for `Long-term Management`, it is the tenancy rent base used with `Profit Sharing / Management Fee %`.
+- `market_rent_baseline` is a benchmark only. It must not be counted as company revenue or company expense.
+- Market rent baseline should use a low-quartile style reference from comparable PropertyGuru/iProperty listings, then manager records the final accepted amount.
+
+## Management Dashboard Rules
+- Company Insight should show company revenue minus company-affecting expenses first.
+- Company revenue may include rented-unit booking revenue, management/profit-sharing fee, cleaning fee revenue, and laundry fee revenue.
+- Company expenses may include vendor laundry, outsource cleaning staff, direct operating claims, rented-unit monthly rent, and MP Office/admin expenses.
+- When `monthly_rent` is set for a `Rented Homestay`, same-unit `Rental` claims are excluded from Company Insight to avoid double-counting rent.
+- Owner-charged expenses do not count as company expense in Company Insight.
+- Tenant-paid electricity, water, and internet for `Long-term Management` units do not count as company expense.
+- ADR = accommodation revenue / occupied nights.
+- RevPAR = accommodation revenue / sellable nights; it is a pricing-and-occupancy KPI, not profit.
+- Occupancy health uses occupied nights: below 8 unhealthy, 8 to 14 normal, 15 to 20 good, above 20 best.
 
 ## Logs Rules
 - Logs page must show useful operational logs, not only error logs.

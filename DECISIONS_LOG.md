@@ -1,10 +1,22 @@
 # Decisions Log
 
+## 2026-05-07: Management Dashboard V1 Business Model Split
+Decision: Company Monthly Insights separates units by business model through Unit Configuration: rented homestay, owner profit sharing, long-term management, and company office/excluded.
+
+Reason:
+Company profit/loss cannot use one unit formula for all operating models. Rented homestays need rent coverage, owner profit-sharing units need management fee and market-rent benchmark context, long-term units should show management fee without tenant-paid utilities, and MP Office should not appear in homestay occupancy, ADR, RevPAR, or unit ranking.
+
 ## 2026-05-02: Archive Legacy SQL And Ad-Hoc Root Scripts
 Decision: Move old bootstrap/reset SQL and one-off inspection scripts out of the repo root into `archive/legacy-sql/` and `archive/ad-hoc-scripts/`, while deleting nothing in this cleanup pass.
 
 Reason:
 These files are historical reference material, not the active release path. Leaving them in the root increases the chance of running the wrong script in an environment-sensitive repo, while immediate deletion would remove useful operational history.
+
+## 2026-05-06: Enable RLS On `public.payout_claims`
+Decision: Add a focused `supabase-payout-claims-rls.sql` script, enable RLS on `public.payout_claims`, and restrict the table to `service_role` by default.
+
+Reason:
+Supabase Advisor flagged `public.payout_claims` as public without RLS. The repo does not show any browser-facing use of that table, so the safest minimal remediation is to turn RLS on and avoid exposing it to authenticated clients until an explicit business policy is defined.
 
 ## 2026-05-02: Align OCR Documentation To OpenRouter
 Decision: Update project docs so OCR/AI behavior is described as OpenRouter-based, using `OPENROUTER_API_KEY`, `OPENROUTER_OCR_PRIMARY_MODEL`, `OPENROUTER_OCR_FALLBACK_MODELS`, and `AI_RECEIPT_SCAN_ENABLED`.

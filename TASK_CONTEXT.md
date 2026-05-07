@@ -8,6 +8,8 @@ Current focus:
 4. Split original claim receipts from payout bank slips so attachments do not disappear and `Mark as claimed` does not overwrite claim receipts.
 5. Move normal claim attachments to signed upload/read helpers because the `receipts` bucket is private.
 6. Keep the rollout test-first; use the focused script `supabase-claims-manager-access.sql` only in environments where manager claim access still follows admin-only policies.
+7. `public.payout_claims` now has a focused RLS remediation script (`supabase-payout-claims-rls.sql`) and was applied to test so the Supabase Advisor warning is resolved without changing any browser-facing claims behavior.
+8. Management Dashboard V1 is implemented locally and `supabase-management-dashboard-v1.sql` has been applied to test Supabase `afcifzghlkxvnpulahub`. It splits Unit Configuration by business model, excludes MP Office from homestay KPIs, separates cleaning/laundry fee revenue from vendor/staff costs, and keeps market rent baseline as a manager-entered benchmark only.
 
 2026-05-02 update (implemented locally, repo cleanup + doc alignment):
 1. Moved legacy SQL bootstrap/reset scripts into `archive/legacy-sql/` and moved ad-hoc inspection/test scripts into `archive/ad-hoc-scripts/`.
@@ -135,6 +137,11 @@ Recent unit-pairing context:
 - Owner Expenses = expenses charged to Owner, excluding Cleaning fee and Homestay Management Fee.
 - Owner Profit = homestay profit - Homestay Management Fee - Owner Expenses.
 - Report page Expenses section includes shared claims and calculated Cleaning fee.
+- Management Dashboard V1 business models:
+  - `Rented Homestay`: booking revenue plus cleaning/laundry fee revenue, minus company-affecting claims and monthly rent.
+  - `Owner Profit Sharing`: company revenue is management/profit-sharing fee plus cleaning/laundry fee revenue; owner-charged claims are excluded from company expense.
+  - `Long-term Management`: company revenue is management fee based on monthly tenancy base and percentage; tenant-paid utilities are excluded.
+  - `Company Office/Excluded`: MP Office/admin expense only, no occupancy/ADR/RevPAR.
 - The admin user-management flow now uses `profiles` fallback when auth user listing is incomplete, so the UI can still show users and allow password resets.
 - Internal units and HostPlatform rows should not share the same primary edit workflow in the admin UI.
 - Editing a `source='hostplatform'` row should open a pairing-focused form, while editing a non-HP row should open the internal-unit form.
