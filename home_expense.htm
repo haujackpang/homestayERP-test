@@ -284,6 +284,8 @@ var unitPairingFilter='All',unitPairingSearch='';
 var reservations=[];
 var unitUnavailability=[];
 var ATTACHMENT_URLS={};
+var ATTACHMENT_URL_EXPIRY={};
+var ATTACHMENT_URL_TTL_MS=55*60*1000;
 var LOCAL_PREVIEW_MODE=false;
 
 // ===== FRONTEND ERROR LOGGER =====
@@ -1438,20 +1440,101 @@ function mergeAttachmentRefs(existing,added){
   return joinAttachmentRefs(out);
 }
 function attachmentName(ref,prefix,index){
-  var raw=decodeURIComponent(String(ref||'').split('/').pop()||'').replace(/^receipt_/,'');
+  var source=attachmentStoragePath(ref)||String(ref||'');
+  var raw=decodeURIComponent(String(source).split('/').pop()||'').split('?')[0].replace(/^receipt_/,'');
   if(!raw)return prefix+(index+1);
   return raw;
 }
+function attachmentStoragePath(ref){
+  var raw=String(ref||'').trim();
+  if(!raw)return'';
+  if(!/^https?:\/\//i.test(raw))return raw;
+  try{
+    var u=new URL(raw);
+    var m=u.pathname.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/receipts\/(.+)$/i);
+    return m&&m[1]?decodeURIComponent(m[1]):'';
+  }catch(e){
+    return'';
+  }
+}
+function cachedAttachmentUrl(path){
+  var key=String(path||'').trim();
+  if(!key)return'';
+  var exp=ATTACHMENT_URL_EXPIRY[key]||0;
+  if(exp&&Date.now()>=exp){
+    delete ATTACHMENT_URLS[key];
+    delete ATTACHMENT_URL_EXPIRY[key];
+    return'';
+  }
+  return ATTACHMENT_URLS[key]||'';
+}
+function attachmentCanOpen(ref){
+  var raw=String(ref||'').trim();
+  return !!attachmentStoragePath(raw)||/^https?:\/\//i.test(raw);
+}
 function attachmentUrlForRef(ref){
   if(!ref)return'';
-  if(/^https?:\/\//i.test(ref))return ref;
-  return ATTACHMENT_URLS[ref]||'';
+  var path=attachmentStoragePath(ref);
+  if(path)return cachedAttachmentUrl(path);
+  return /^https?:\/\//i.test(ref)?ref:'';
+}
+async function fetchClaimAttachmentUrl(ref,forceRefresh){
+  var raw=String(ref||'').trim();
+  if(!raw)return'';
+  var path=attachmentStoragePath(raw);
+  if(!path)return /^https?:\/\//i.test(raw)?raw:'';
+  if(!forceRefresh){
+    var cached=cachedAttachmentUrl(path);
+    if(cached)return cached;
+  }
+  var resp=await callEdgeFunction('process-invoice',{action:'create-claim-attachment-read-urls',paths:[path]});
+  var item=resp&&resp.items&&resp.items[0]?resp.items[0]:null;
+  if(item&&item.path&&item.signedUrl){
+    ATTACHMENT_URLS[item.path]=item.signedUrl;
+    ATTACHMENT_URL_EXPIRY[item.path]=Date.now()+ATTACHMENT_URL_TTL_MS;
+    return item.signedUrl;
+  }
+  return'';
+}
+function attachmentOpenAttr(ref){
+  return " onclick='return openAttachment(event,"+JSON.stringify(String(ref||''))+")'";
+}
+function attachmentLinkAttrs(ref,url){
+  return 'href="'+esc(url||'#')+'" target="_blank" rel="noopener"'+attachmentOpenAttr(ref);
+}
+function openAttachment(ev,ref){
+  var cached=attachmentUrlForRef(ref);
+  if(cached){
+    if(ev&&ev.currentTarget&&ev.currentTarget.tagName==='A')ev.currentTarget.href=cached;
+    return true;
+  }
+  if(ev&&ev.preventDefault)ev.preventDefault();
+  var popup=null;
+  try{popup=window.open('about:blank','_blank','noopener');}catch(e){}
+  fetchClaimAttachmentUrl(ref,true).then(function(url){
+    if(!url)throw new Error('Attachment unavailable');
+    if(popup&&!popup.closed)popup.location.replace(url);
+    else window.open(url,'_blank','noopener');
+    render();
+  }).catch(function(e){
+    if(popup&&!popup.closed)popup.close();
+    console.error('openAttachment failed:',e);
+    toast(e&&e.message?e.message:'Attachment unavailable');
+  });
+  return false;
 }
 async function hydrateClaimAttachmentUrls(list){
   var need=[],seen={};
   (list||[]).forEach(function(c){
     splitAttachmentRefs(c.receiptRefs).concat(splitAttachmentRefs(c.paymentSlipRefs)).forEach(function(ref){
-      if(!ref||/^https?:\/\//i.test(ref)||ATTACHMENT_URLS[ref]||seen[ref])return;
+      var path=attachmentStoragePath(ref);
+      if(path){
+        if(cachedAttachmentUrl(path)||seen[path])return;
+        seen[path]=true;
+        need.push(path);
+        return;
+      }
+      if(!ref||/^https?:\/\//i.test(ref)||seen[ref])return;
       seen[ref]=true;
       need.push(ref);
     });
@@ -1461,12 +1544,16 @@ async function hydrateClaimAttachmentUrls(list){
     var resp=await callEdgeFunction('process-invoice',{action:'create-claim-attachment-read-urls',paths:need});
     var items=resp&&resp.items?resp.items:[];
     items.forEach(function(it){
-      if(it&&it.path&&it.signedUrl)ATTACHMENT_URLS[it.path]=it.signedUrl;
+      if(it&&it.path&&it.signedUrl){
+        ATTACHMENT_URLS[it.path]=it.signedUrl;
+        ATTACHMENT_URL_EXPIRY[it.path]=Date.now()+ATTACHMENT_URL_TTL_MS;
+      }
     });
   }catch(e){
     console.error('hydrateClaimAttachmentUrls failed:',e);
   }
 }
+window.openAttachment=openAttachment;
 async function prepareClaimAttachmentUpload(file,claimId,attachmentType){
   var resp=await callEdgeFunction('process-invoice',{action:'create-claim-attachment-upload',claimId:claimId,attachmentType:attachmentType,fileName:file.name||'attachment.pdf',mimeType:file.type||'application/octet-stream'});
   if(!resp||!resp.path||!resp.token)throw new Error('Failed to prepare attachment upload.');
@@ -1588,11 +1675,12 @@ function receiptBox(existingRefs){
     html+='<div style="margin:4px 0;display:flex;flex-direction:column;gap:4px">';
     refs.forEach(function(ref,i){
       var url=attachmentUrlForRef(ref);
+      var canOpen=attachmentCanOpen(ref);
       var name=attachmentName(ref,'Receipt ',i);
       var isImg=/\.(jpg|jpeg|png|gif|webp|heic)$/i.test(name);
       var body='<span style="font-size:16px">'+(isImg?'🖼️':'📄')+'</span><span style="font-size:11px;color:#059669;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+name+'</span><span style="font-size:10px;color:#6b7280">'+(url?'View →':'Loading...')+'</span>';
-      html+=url
-        ?'<a href="'+url+'" target="_blank" style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f0fdf4;border:1px dashed #059669;border-radius:10px;text-decoration:none">'+body+'</a>'
+      html+=canOpen
+        ?'<a '+attachmentLinkAttrs(ref,url)+' style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f0fdf4;border:1px dashed #059669;border-radius:10px;text-decoration:none">'+body+'</a>'
         :'<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f0fdf4;border:1px dashed #059669;border-radius:10px">'+body+'</div>';
     });
     html+='</div>';
@@ -1614,11 +1702,12 @@ function viewReceiptBox(existingRefs){
   var html='<div style="margin:4px 0;display:flex;flex-direction:column;gap:4px">';
   refs.forEach(function(ref,i){
     var url=attachmentUrlForRef(ref);
+    var canOpen=attachmentCanOpen(ref);
     var name=attachmentName(ref,'Receipt ',i);
     var isImg=/\.(jpg|jpeg|png|gif|webp|heic)$/i.test(name);
     var body='<span style="font-size:18px">'+(isImg?'🖼️':'📄')+'</span><span style="font-size:12px;color:#059669;font-weight:600;flex:1">'+name+'</span><span style="font-size:11px;color:#6b7280">'+(url?'Tap to view →':'Link unavailable')+'</span>';
-    html+=url
-      ?'<a href="'+url+'" target="_blank" style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#f0fdf4;border:1px solid #059669;border-radius:10px;text-decoration:none">'+body+'</a>'
+    html+=canOpen
+      ?'<a '+attachmentLinkAttrs(ref,url)+' style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#f0fdf4;border:1px solid #059669;border-radius:10px;text-decoration:none">'+body+'</a>'
       :'<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#f0fdf4;border:1px solid #059669;border-radius:10px">'+body+'</div>';
   });
   html+='</div>';
@@ -1630,10 +1719,11 @@ function viewPaymentSlipBox(existingRefs){
   var html='<div style="margin:4px 0"><div style="font-size:11px;font-weight:600;color:#92400e;margin-bottom:4px">💳 Bank transfer slip(s)</div>';
   refs.forEach(function(ref,i){
     var url=attachmentUrlForRef(ref);
+    var canOpen=attachmentCanOpen(ref);
     var name=attachmentName(ref,'Slip ',i);
     var body='<span style="font-size:14px">📄</span><span style="font-size:11px;color:#92400e;font-weight:600;flex:1">'+name+'</span><span style="font-size:10px;color:#6b7280">'+(url?'View →':'Link unavailable')+'</span>';
-    html+=url
-      ?'<a href="'+url+'" target="_blank" style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:3px;background:#fef3c7;border:1px dashed #f59e0b;border-radius:10px;text-decoration:none">'+body+'</a>'
+    html+=canOpen
+      ?'<a '+attachmentLinkAttrs(ref,url)+' style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:3px;background:#fef3c7;border:1px dashed #f59e0b;border-radius:10px;text-decoration:none">'+body+'</a>'
       :'<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:3px;background:#fef3c7;border:1px dashed #f59e0b;border-radius:10px">'+body+'</div>';
   });
   html+='</div>';
@@ -1658,10 +1748,11 @@ function managerSlipBox(receiptRefs){
     html+='<div style="margin:4px 0;display:flex;flex-direction:column;gap:4px">';
     existingRefs.forEach(function(ref,i){
       var url=attachmentUrlForRef(ref);
+      var canOpen=attachmentCanOpen(ref);
       var name=attachmentName(ref,'Receipt ',i);
       var isImg=/\.(jpg|jpeg|png|gif|webp|heic)$/i.test(name);
       var linkBody='<span style="font-size:16px">'+(isImg?'🖼️':'📄')+'</span><span style="font-size:11px;color:#059669;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+name+'</span><span style="font-size:10px;color:#6b7280;margin-left:auto">'+(url?'View →':'Link unavailable')+'</span>';
-      html+='<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f0fdf4;border:1px solid #059669;border-radius:10px">'+(url?'<a href="'+url+'" target="_blank" style="display:flex;align-items:center;gap:6px;flex:1;text-decoration:none;overflow:hidden">'+linkBody+'</a>':'<div style="display:flex;align-items:center;gap:6px;flex:1;overflow:hidden">'+linkBody+'</div>')+'<span onclick="removeMgrSlip('+i+')" style="font-size:14px;color:#991b1b;cursor:pointer;padding:2px 8px;flex-shrink:0">✕</span></div>';
+      html+='<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f0fdf4;border:1px solid #059669;border-radius:10px">'+(canOpen?'<a '+attachmentLinkAttrs(ref,url)+' style="display:flex;align-items:center;gap:6px;flex:1;text-decoration:none;overflow:hidden">'+linkBody+'</a>':'<div style="display:flex;align-items:center;gap:6px;flex:1;overflow:hidden">'+linkBody+'</div>')+'<span onclick="removeMgrSlip('+i+')" style="font-size:14px;color:#991b1b;cursor:pointer;padding:2px 8px;flex-shrink:0">✕</span></div>';
     });
     html+='</div>';
   }
