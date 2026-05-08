@@ -1101,6 +1101,7 @@ function companyInsightsExpenseBucket(category){
   if(cat==='MFSF')return{label:'MFSF',color:'#A45D2B'};
   if(cat==='Maintenance & Repair'||cat==='Electrical & Unit Setup'||cat==='Unit Renovation')return{label:'Maintenance Cost',color:'#854F0B'};
   if(cat==='Housekeeping & Cleaning'||cat==='Laundry'||cat==='Outsource Cleaning Staff'||cat==='Daily Products'||cat==='Hospitality Items')return{label:'Cleaning-related',color:'#3B6D11'};
+  if(cat==='Office Expenses'||cat==='Employee Welfare')return{label:'Office/Admin',color:'#5F5E5A'};
   return{label:'Other',color:'#888780'};
 }
 function unitConfigFor(unitName){
@@ -1197,6 +1198,19 @@ function companyInsightsOccupancyStatus(days){
 }
 function companyInsightsReservationActive(r){return !!(r&&r.start_date&&r.end_date&&r.booking_type!==6&&!String(r.booking_status||'').match(/Cancel/i));}
 function companyInsightsReservationRevenue(r){return (Number(r&&r.rental||0)||0)+(Number(r&&r.extra_guest||0)||0);}
+function companyInsightsReservationRevenueParts(r,cfg){
+  var gross=companyInsightsReservationRevenue(r);
+  var cleaningFee=cfgMoney(cfg,'cleaning_fee');
+  var laundryFee=cfgMoney(cfg,'laundry_fee');
+  var fee=cleaningFee+laundryFee;
+  var feeIncome=Math.min(gross,fee);
+  return{
+    gross:gross,
+    net:Math.max(0,gross-fee),
+    cleaning:fee>0?feeIncome*(cleaningFee/fee):0,
+    laundry:fee>0?feeIncome*(laundryFee/fee):0
+  };
+}
 function companyInsightsReservationNights(r){
   var n=Number(r&&r.nights||0)||0;
   if(n>0)return n;
@@ -1224,23 +1238,37 @@ function companyInsightsUnitRows(period){
       var totalNights=Math.max(1,companyInsightsReservationNights(r));
       return sum+(companyInsightsReservationRevenue(r)*(overlap/totalNights));
     },0);
+    var netAccommodationRevenue=overlapRes.reduce(function(sum,r){
+      var overlap=companyInsightsOverlapNights(r.start_date,r.end_date,period);
+      var totalNights=Math.max(1,companyInsightsReservationNights(r));
+      return sum+(companyInsightsReservationRevenueParts(r,cfg).net*(overlap/totalNights));
+    },0);
+    var feeRevenueParts=overlapRes.reduce(function(acc,r){
+      var overlap=companyInsightsOverlapNights(r.start_date,r.end_date,period);
+      var totalNights=Math.max(1,companyInsightsReservationNights(r));
+      var ratio=overlap/totalNights;
+      var parts=companyInsightsReservationRevenueParts(r,cfg);
+      acc.cleaning+=parts.cleaning*ratio;
+      acc.laundry+=parts.laundry*ratio;
+      return acc;
+    },{cleaning:0,laundry:0});
     var unitUnavailable=unitUnavailability.filter(function(r){return companyInsightsUnitMatch(unit,r.unit_name,r.hp_unit_id)&&companyInsightsOverlapNights(r.start_date,r.end_date,period)>0;});
     var unavailableNights=unitUnavailable.reduce(function(sum,r){return sum+companyInsightsOverlapNights(r.start_date,r.end_date,period);},0);
     unavailableNights=Math.min(companyInsightsDaysInPeriod(period),unavailableNights);
     var sellableNights=Math.max(0,companyInsightsDaysInPeriod(period)-unavailableNights);
     var occupancy=sellableNights>0?(occupiedNights/sellableNights*100):null;
-    var adr=occupiedNights>0?(grossBookingSales/occupiedNights):0;
-    var revpar=sellableNights>0?(grossBookingSales/sellableNights):0;
+    var adr=occupiedNights>0?(netAccommodationRevenue/occupiedNights):0;
+    var revpar=sellableNights>0?(netAccommodationRevenue/sellableNights):0;
     var sharedExpenses=unitClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Both';}).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
     var ownerExpenses=unitClaims.filter(function(c){return reportChargeBucket(c.unit,c.chargedTo)==='Owner';}).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
-    var cleaningFeeIncome=bookingCount*cfgMoney(cfg,'cleaning_fee');
-    var laundryFeeIncome=bookingCount*cfgMoney(cfg,'laundry_fee');
+    var cleaningFeeIncome=feeRevenueParts.cleaning;
+    var laundryFeeIncome=feeRevenueParts.laundry;
     var profitPct=(Number(cfg.service_fee_pct||0)||0)/100;
     var monthlyRent=cfgMoney(cfg,'monthly_rent');
     var marketRentBaseline=cfgMoney(cfg,'market_rent_baseline');
     var homestayProfit=grossBookingSales-sharedExpenses-cleaningFeeIncome-laundryFeeIncome;
     var managementFeeIncome=model==='owner_profit_sharing'?(homestayProfit*profitPct):(model==='long_term_management'?(monthlyRent*profitPct):0);
-    var bookingRevenue=model==='rented_homestay'?grossBookingSales:0;
+    var bookingRevenue=model==='rented_homestay'?netAccommodationRevenue:0;
     var companyRevenue=bookingRevenue+managementFeeIncome+cleaningFeeIncome+laundryFeeIncome;
     var companyClaimExpenses=unitClaims.filter(companyInsightsClaimAffectsCompany).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
     var monthlyRentCost=model==='rented_homestay'?monthlyRent:0;
@@ -1252,7 +1280,7 @@ function companyInsightsUnitRows(period){
     var cleaningRelatedCost=unitClaims.filter(function(c){return companyInsightsExpenseBucket(c.category).label==='Cleaning-related';}).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
     var maintenanceCost=unitClaims.filter(function(c){return companyInsightsExpenseBucket(c.category).label==='Maintenance Cost';}).reduce(function(sum,c){return sum+(Number(c.amount)||0);},0);
     if(model==='long_term_management'){
-      bookingCount=0;occupiedNights=0;unavailableNights=0;sellableNights=0;occupancy=null;adr=0;revpar=0;grossBookingSales=0;cleaningFeeIncome=0;laundryFeeIncome=0;bookingRevenue=0;companyRevenue=managementFeeIncome;operatingProfitBeforeRent=managementFeeIncome-companyClaimExpenses;marketBenchmarkDelta=null;rentCoverage=null;
+      bookingCount=0;occupiedNights=0;unavailableNights=0;sellableNights=0;occupancy=null;adr=0;revpar=0;grossBookingSales=0;netAccommodationRevenue=0;cleaningFeeIncome=0;laundryFeeIncome=0;bookingRevenue=0;companyRevenue=managementFeeIncome;operatingProfitBeforeRent=managementFeeIncome-companyClaimExpenses;marketBenchmarkDelta=null;rentCoverage=null;
     }
     return{
       unit:unit,
@@ -1267,6 +1295,7 @@ function companyInsightsUnitRows(period){
       adr:adr,
       revpar:revpar,
       grossBookingSales:grossBookingSales,
+      netAccommodationRevenue:netAccommodationRevenue,
       bookingRevenue:bookingRevenue,
       managementFeeIncome:managementFeeIncome,
       cleaningFeeIncome:cleaningFeeIncome,
@@ -1291,6 +1320,23 @@ function companyInsightsExpenseRows(period){
   var totals={};
   companyInsightsApprovedClaims(period).forEach(function(c){
     if(!companyInsightsClaimAffectsCompany(c))return;
+    var bucket=companyInsightsExpenseBucket(c.category);
+    if(!totals[bucket.label])totals[bucket.label]={label:bucket.label,value:0,color:bucket.color};
+    totals[bucket.label].value+=(Number(c.amount)||0);
+  });
+  return Object.keys(totals).map(function(k){return totals[k];}).sort(function(a,b){return b.value-a.value;});
+}
+function companyInsightsClaimIsAdminOverhead(c){
+  if(!c||!companyInsightsClaimAffectsCompany(c))return false;
+  var unit=String(c.unit||'');
+  var model=unitBusinessModel(unit,unitConfigFor(unit));
+  if(unit==='MP Office'||model==='company_office_excluded')return true;
+  return c.category==='Office Expenses'||c.category==='Employee Welfare';
+}
+function companyInsightsAdminExpenseRows(period){
+  var totals={};
+  companyInsightsApprovedClaims(period).forEach(function(c){
+    if(!companyInsightsClaimIsAdminOverhead(c))return;
     var bucket=companyInsightsExpenseBucket(c.category);
     if(!totals[bucket.label])totals[bucket.label]={label:bucket.label,value:0,color:bucket.color};
     totals[bucket.label].value+=(Number(c.amount)||0);
@@ -1340,6 +1386,7 @@ function companyInsightsBuildV1Alerts(current,previous){
 function companyInsightsDecoratedMonth(period){
   var units=companyInsightsUnitRows(period);
   var expenses=companyInsightsExpenseRows(period);
+  var adminExpenses=companyInsightsAdminExpenseRows(period);
   var companyRevenue=units.reduce(function(sum,u){return sum+u.companyIncome;},0);
   var monthlyRentExpense=units.reduce(function(sum,u){return sum+u.monthlyRentCost;},0);
   if(monthlyRentExpense>0)expenses.push({label:'Monthly Rent',value:monthlyRentExpense,color:'#7C3AED'});
@@ -1359,12 +1406,13 @@ function companyInsightsDecoratedMonth(period){
     sellableNights:sellableTotal,
     unavailableNights:units.reduce(function(sum,u){return sum+u.unavailableNights;},0),
     incomeMix:[
-      {label:'Booking Revenue',value:units.reduce(function(sum,u){return sum+u.bookingRevenue;},0),color:'#60a5fa'},
+      {label:'Net Booking Revenue',value:units.reduce(function(sum,u){return sum+u.bookingRevenue;},0),color:'#60a5fa'},
       {label:'Management Fee',value:units.reduce(function(sum,u){return sum+u.managementFeeIncome;},0),color:'#2563eb'},
       {label:'Cleaning Fee Revenue',value:units.reduce(function(sum,u){return sum+u.cleaningFeeIncome;},0),color:'#0f766e'},
       {label:'Laundry Fee Revenue',value:units.reduce(function(sum,u){return sum+u.laundryFeeIncome;},0),color:'#4f46e5'}
     ],
     expenseBreakdown:expenses,
+    adminExpenseBreakdown:adminExpenses,
     units:units
   };
   current.leaders=companyInsightsLeaders(units);
@@ -1389,11 +1437,12 @@ function companyInsightsBarList(rows){
 function companyInsightsGuideItems(){
   return [
     {title:'Net Profit / Loss',detail:'Company revenue after tracked company expenses. Use this first to see whether the month made money.'},
-    {title:'Company Revenue',detail:'Money the company earns from booking revenue, management fee, cleaning fee revenue, and laundry fee revenue.'},
-    {title:'Company Expenses',detail:'Money the company pays out for vendor/staff claims, admin costs, and monthly rent for rented homestay units.'},
+    {title:'Company Revenue',detail:'Money the company earns from net booking revenue, management fee, cleaning fee revenue, and laundry fee revenue.'},
+    {title:'Company Expenses',detail:'Full company P/L cost, including unit costs, vendor/staff claims, admin costs, and rented homestay monthly rent.'},
+    {title:'Company/Admin Expense Breakdown',detail:'Overhead view only. Unit rent, utilities, cleaning, laundry, maintenance, and supplies stay in unit performance.'},
     {title:'Portfolio Occupancy',detail:'Occupied nights divided by sellable nights. It shows how full the portfolio was this month.'},
-    {title:'ADR',detail:'Average Daily Rate. This is accommodation revenue per occupied night.'},
-    {title:'RevPAR',detail:'Revenue per Available Room. This is accommodation revenue per sellable night, so it combines price and occupancy.'},
+    {title:'ADR',detail:'Average Daily Rate. This uses net room revenue after configured cleaning and laundry fee are removed.'},
+    {title:'RevPAR',detail:'Revenue per Available Room. This uses net room revenue per sellable night, so it combines price and occupancy.'},
     {title:'Revenue',detail:'For each unit, this is the company income assigned to that unit after the selected business model logic.'},
     {title:'Expenses',detail:'For each unit, this is the company-affecting cost bucket used in the contribution calculation.'},
     {title:'Net Contribution',detail:'Unit revenue minus unit expenses. Positive means the unit added profit to the company.'},
@@ -1467,13 +1516,13 @@ function companyInsightsScreenHtml(){
   var periodOpts=periods.map(function(period){return '<option value="'+period+'"'+(period===current.period?' selected':'')+'>'+companyInsightsMonthLabel(period)+'</option>';}).join('');
   var profitCls=current.netProfit<0?' down':'';
   var incomeHtml=companyInsightsBarList(current.incomeMix);
-  var expenseHtml=companyInsightsBarList(current.expenseBreakdown);
+  var expenseHtml=companyInsightsBarList(current.adminExpenseBreakdown);
   var rentedUnits=current.units.filter(function(u){return u.businessModel==='rented_homestay';});
   var ownerUnits=current.units.filter(function(u){return u.businessModel==='owner_profit_sharing';});
   var longTermUnits=current.units.filter(function(u){return u.businessModel==='long_term_management';});
-  var groupedUnitsHtml=companyInsightsUnitGroupHtml('Rented Homestay Units','Shows booking revenue, direct costs, monthly rent, net profit after rent, and rent coverage.',rentedUnits,current.leaders)+companyInsightsUnitGroupHtml('Owner Profit Sharing Units','Shows management fee income, owner payout context, and market rent baseline comparison.',ownerUnits,current.leaders)+companyInsightsUnitGroupHtml('Long-term Management Units','Shows management fee income only. Tenant-paid utilities are excluded from company expenses.',longTermUnits,current.leaders);
+  var groupedUnitsHtml=companyInsightsUnitGroupHtml('Rented Homestay Units','Shows booking revenue, direct costs, monthly rent, net profit after rent, and rent coverage.',rentedUnits,current.leaders)+companyInsightsUnitGroupHtml('Owner Profit Sharing Units','Shows management fee income, owner payout context, and market rent baseline comparison.',ownerUnits,current.leaders)+companyInsightsUnitGroupHtml('Long-term Management Units','Shows Tenancy Base x Management Fee % as company income only. Tenant-paid utilities are excluded.',longTermUnits,current.leaders);
   var alertHtml=current.alerts.map(function(a){return '<div class="ci-alert '+(a.tone||'info')+'"><div class="ci-alert-title">'+esc(a.title)+'</div><div class="ci-alert-copy">'+esc(a.detail)+'</div></div>';}).join('');
-  return '<div class="scr"><div class="ci-shell"><div class="ci-note">Manager dashboard only. MP Office is excluded from homestay unit performance and counted as company/admin expense only.</div><div class="ci-section"><div class="ci-topline"><div><div class="ci-title">Company Monthly Insights</div><div class="ci-sub">Manager view for company profit/loss, business-model performance, and occupancy impact.</div></div><div class="ci-period"><label class="fl">Month</label><select class="fi" onchange="setCompanyInsightPeriod(this.value)">'+periodOpts+'</select></div></div><div class="ci-summary" style="margin-top:10px"><div class="ci-card profit'+profitCls+'"><div class="ci-kicker">Net Profit / Loss</div><div class="ci-value">'+moneyFmt(current.netProfit)+'</div><div class="ci-foot">'+(previous?('vs '+previous.label+' '+moneyFmt(current.netProfit-previous.netProfit)):'Company revenue minus tracked company expenses')+'</div></div><div class="ci-card revenue"><div class="ci-kicker">Company Revenue</div><div class="ci-value">'+moneyFmt(current.companyRevenue)+'</div><div class="ci-foot">Booking revenue for rented units, management fee, cleaning fee revenue, and laundry fee revenue</div></div><div class="ci-card expense"><div class="ci-kicker">Company Expenses</div><div class="ci-value">'+moneyFmt(current.companyExpenses)+'</div><div class="ci-foot">Vendor/staff claims, admin costs, and rented-unit monthly rent</div></div><div class="ci-card"><div class="ci-kicker">Portfolio Occupancy</div><div class="ci-value">'+pctFmtDash(current.portfolioOccupancy)+'</div><div class="ci-foot">'+current.occupiedNights+' occupied night(s) across '+current.sellableNights+' sellable night(s)</div></div></div><div class="ci-note" style="margin-top:10px">Gross booking sales for <b>'+esc(current.label)+'</b> are <b>'+moneyFmt(current.grossBookingSales)+'</b>. Profit margin is <b>'+pctFmt(current.profitMargin)+'</b>. Imported unavailable nights this month: <b>'+current.unavailableNights+'</b>.</div></div>'+companyInsightsGuideHtml()+companyInsightsTrendChart()+'<div class="ci-grid two-col"><div class="ci-chart-card"><div class="ci-chart-title">Income Drivers</div><div class="ci-chart-sub">Company revenue split by booking income, management fee, and cleaning/laundry fee revenue.</div><div class="ci-bar-list">'+incomeHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Portfolio Capacity</div><div class="ci-chart-sub">Occupancy uses sellable nights after HostPlatform unavailable days are removed.</div><div class="ci-kpi-strip"><div class="ci-mini"><div class="ci-kicker">Occupied Nights</div><div class="ci-value">'+current.occupiedNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Unavailable Nights</div><div class="ci-value">'+current.unavailableNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Sellable Nights</div><div class="ci-value">'+current.sellableNights+'</div></div></div></div><div class="ci-chart-card"><div class="ci-chart-title">Expense Breakdown</div><div class="ci-chart-sub">Company-affecting claims plus rented-unit monthly rent.</div><div class="ci-bar-list">'+expenseHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Interpretation</div><div class="ci-chart-sub">How to read this month quickly.</div><div class="ci-alert info"><div class="ci-alert-title">RevPAR</div><div class="ci-alert-copy">High RevPAR means the unit combines price and occupancy well. Low RevPAR means weak demand, low pricing, or both.</div></div><div class="ci-alert warn"><div class="ci-alert-title">Occupancy status</div><div class="ci-alert-copy">Below 8 nights is unhealthy, 8-14 normal, 15-20 good, and above 20 best.</div></div><div class="ci-alert good"><div class="ci-alert-title">Market baseline</div><div class="ci-alert-copy">Market rent baseline is a benchmark only. It is not counted as revenue or expense.</div></div></div></div><div class="ci-section"><div class="ci-unit-head"><div><div class="ci-title" style="font-size:14px">Unit Performance By Business Model</div><div class="ci-sub">Rented units, owner profit-sharing units, and long-term management units use different profit logic.</div></div><div class="ci-unit-hint">Desktop shows grouped tables. Narrow screens switch to stacked cards.</div></div>'+groupedUnitsHtml+'</div><div class="ci-section"><div class="ci-title" style="font-size:14px">Alerts</div><div class="ci-sub">Action-oriented prompts for the next month, not just historical reporting.</div><div class="ci-alerts" style="margin-top:10px">'+alertHtml+'</div></div></div></div>';
+  return '<div class="scr"><div class="ci-shell"><div class="ci-note">Manager dashboard only. MP Office is excluded from homestay unit performance and counted as company/admin expense only.</div><div class="ci-section"><div class="ci-topline"><div><div class="ci-title">Company Monthly Insights</div><div class="ci-sub">Manager view for company profit/loss, business-model performance, and occupancy impact.</div></div><div class="ci-period"><label class="fl">Month</label><select class="fi" onchange="setCompanyInsightPeriod(this.value)">'+periodOpts+'</select></div></div><div class="ci-summary" style="margin-top:10px"><div class="ci-card profit'+profitCls+'"><div class="ci-kicker">Net Profit / Loss</div><div class="ci-value">'+moneyFmt(current.netProfit)+'</div><div class="ci-foot">'+(previous?('vs '+previous.label+' '+moneyFmt(current.netProfit-previous.netProfit)):'Company revenue minus tracked company expenses')+'</div></div><div class="ci-card revenue"><div class="ci-kicker">Company Revenue</div><div class="ci-value">'+moneyFmt(current.companyRevenue)+'</div><div class="ci-foot">Net booking revenue for rented units, management fee, cleaning fee revenue, and laundry fee revenue</div></div><div class="ci-card expense"><div class="ci-kicker">Company Expenses</div><div class="ci-value">'+moneyFmt(current.companyExpenses)+'</div><div class="ci-foot">Full P/L cost: unit costs, vendor/staff claims, admin costs, and rented-unit monthly rent</div></div><div class="ci-card"><div class="ci-kicker">Portfolio Occupancy</div><div class="ci-value">'+pctFmtDash(current.portfolioOccupancy)+'</div><div class="ci-foot">'+current.occupiedNights+' occupied night(s) across '+current.sellableNights+' sellable night(s)</div></div></div><div class="ci-note" style="margin-top:10px">Gross booking sales for <b>'+esc(current.label)+'</b> are <b>'+moneyFmt(current.grossBookingSales)+'</b>. ADR/RevPAR use net room revenue after configured cleaning/laundry fee. Profit margin is <b>'+pctFmt(current.profitMargin)+'</b>. Imported unavailable nights this month: <b>'+current.unavailableNights+'</b>.</div></div>'+companyInsightsGuideHtml()+companyInsightsTrendChart()+'<div class="ci-grid two-col"><div class="ci-chart-card"><div class="ci-chart-title">Income Drivers</div><div class="ci-chart-sub">Company revenue split by net booking income, management fee, and cleaning/laundry fee revenue.</div><div class="ci-bar-list">'+incomeHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Portfolio Capacity</div><div class="ci-chart-sub">Occupancy uses sellable nights after HostPlatform unavailable days are removed.</div><div class="ci-kpi-strip"><div class="ci-mini"><div class="ci-kicker">Occupied Nights</div><div class="ci-value">'+current.occupiedNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Unavailable Nights</div><div class="ci-value">'+current.unavailableNights+'</div></div><div class="ci-mini"><div class="ci-kicker">Sellable Nights</div><div class="ci-value">'+current.sellableNights+'</div></div></div></div><div class="ci-chart-card"><div class="ci-chart-title">Company/Admin Expense Breakdown</div><div class="ci-chart-sub">Overhead-only view. Unit rent, utilities, cleaning, laundry, maintenance, setup, and supplies stay in unit performance.</div><div class="ci-bar-list">'+expenseHtml+'</div></div><div class="ci-chart-card"><div class="ci-chart-title">Interpretation</div><div class="ci-chart-sub">How to read this month quickly.</div><div class="ci-alert info"><div class="ci-alert-title">RevPAR</div><div class="ci-alert-copy">High RevPAR means strong net room price and occupancy. Low RevPAR means weak demand, low pricing, high fee load, or a mix.</div></div><div class="ci-alert warn"><div class="ci-alert-title">Occupancy status</div><div class="ci-alert-copy">Below 8 nights is unhealthy, 8-14 normal, 15-20 good, and above 20 best.</div></div><div class="ci-alert good"><div class="ci-alert-title">Market baseline</div><div class="ci-alert-copy">Market rent baseline is a benchmark only. It is not counted as revenue or expense.</div></div></div></div><div class="ci-section"><div class="ci-unit-head"><div><div class="ci-title" style="font-size:14px">Unit Performance By Business Model</div><div class="ci-sub">Rented units, owner profit-sharing units, and long-term management units use different profit logic.</div></div><div class="ci-unit-hint">Desktop shows grouped tables. Narrow screens switch to stacked cards.</div></div>'+groupedUnitsHtml+'</div><div class="ci-section"><div class="ci-title" style="font-size:14px">Alerts</div><div class="ci-sub">Action-oriented prompts for the next month, not just historical reporting.</div><div class="ci-alerts" style="margin-top:10px">'+alertHtml+'</div></div></div></div>';
 }
 function expMonthSelect(selVal){
   var now=new Date();var opts=[];
