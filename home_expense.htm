@@ -1529,6 +1529,8 @@ function companyInsightsTrendChart(){
   var currentPeriod=(companyInsightPeriod&&periods.indexOf(companyInsightPeriod)>=0)?companyInsightPeriod:periods[periods.length-1];
   var currentIdx=Math.max(0,periods.indexOf(currentPeriod));
   var months=periods.slice(Math.max(0,currentIdx-2),currentIdx+1).map(companyInsightsDecoratedMonth);
+  var prevDisabled=currentIdx<=0?' disabled':'';
+  var nextDisabled=currentIdx>=periods.length-1?' disabled':'';
   var max=Math.max.apply(null,months.map(function(m){return Math.max(m.companyRevenue,m.companyExpenses,Math.abs(m.netProfit));}).concat([1]));
   var points=months.map(function(m,idx){
     var x=12+idx*(76/(Math.max(months.length-1,1)));
@@ -1546,7 +1548,7 @@ function companyInsightsTrendChart(){
     var netCls=m.netProfit<0?' down':'';
     return '<div class="ci-trend-col"><div class="ci-trend-net'+netCls+'">'+moneyFmt(m.netProfit)+'</div><div class="ci-trend-bars"><div class="ci-trend-bar rev" style="height:'+revH+'%"></div><div class="ci-trend-bar exp" style="height:'+expH+'%"></div></div><div class="ci-trend-label">'+esc(companyInsightsMonthLabel(m.period).split(' ')[0])+'</div></div>';
   }).join('');
-  return '<div class="ci-chart-card"><div class="ci-chart-title">Company Revenue vs Expenses vs Net Profit</div><div class="ci-chart-sub">Grouped bars show revenue and expense. The green line tracks net company profit.</div><div class="ci-legend"><span class="ci-legend-item"><span class="ci-dot" style="background:#60a5fa"></span>Company Revenue</span><span class="ci-legend-item"><span class="ci-dot" style="background:#fbbf24"></span>Company Expenses</span><span class="ci-legend-item"><span class="ci-dot" style="background:#065f46"></span>Net Profit</span></div><div class="ci-trend-wrap"><svg class="ci-trend-svg" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline fill="none" stroke="#065f46" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" points="'+points+'"></polyline>'+circles+'</svg><div class="ci-trend-grid">'+cols+'</div></div></div>';
+  return '<div class="ci-chart-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div class="ci-chart-title">Company Revenue vs Expenses vs Net Profit</div><div style="display:flex;gap:6px"><button class="pbtn btn-o" style="padding:6px 10px;min-width:54px" onclick="shiftCompanyInsightPeriod(-1)"'+prevDisabled+'>Prev</button><button class="pbtn btn-o" style="padding:6px 10px;min-width:54px" onclick="shiftCompanyInsightPeriod(1)"'+nextDisabled+'>Next</button></div></div><div class="ci-chart-sub">Shows the selected month with the previous 2 months when available.</div><div class="ci-legend"><span class="ci-legend-item"><span class="ci-dot" style="background:#60a5fa"></span>Company Revenue</span><span class="ci-legend-item"><span class="ci-dot" style="background:#fbbf24"></span>Company Expenses</span><span class="ci-legend-item"><span class="ci-dot" style="background:#065f46"></span>Net Profit</span></div><div class="ci-trend-wrap"><svg class="ci-trend-svg" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline fill="none" stroke="#065f46" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" points="'+points+'"></polyline>'+circles+'</svg><div class="ci-trend-grid">'+cols+'</div></div></div>';
 }
 function companyInsightsScreenHtml(){
   var periods=companyInsightsPeriods();
@@ -3437,6 +3439,16 @@ window.openReportView=function(){
   ss('reportView','reportHome');
 };
 window.setCompanyInsightPeriod=function(period){companyInsightPeriod=period;render();};
+window.shiftCompanyInsightPeriod=function(delta){
+  var periods=companyInsightsPeriods();
+  if(!periods.length)return;
+  var current=(companyInsightPeriod&&periods.indexOf(companyInsightPeriod)>=0)?companyInsightPeriod:periods[periods.length-1];
+  var idx=periods.indexOf(current);
+  var nextIdx=Math.max(0,Math.min(periods.length-1,idx+(Number(delta)||0)));
+  if(nextIdx===idx)return;
+  companyInsightPeriod=periods[nextIdx];
+  render();
+};
 window.openCompanyInsights=function(){
   var periods=companyInsightsPeriods();
   if(!companyInsightPeriod||periods.indexOf(companyInsightPeriod)<0)companyInsightPeriod=periods[periods.length-1];
