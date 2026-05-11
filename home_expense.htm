@@ -253,15 +253,16 @@ var R=null,S='auth',PS=null,SEL=null,editingId=null,payTab='byEmp';
 var currentUser=null,currentProfile=null;
 var fltStatus='All',fltMonth='All',fltYear='All',fltEmp='All';
 var empFltStatus='All',empFltMonth='All',empFltYear='All';
-var CLAIMS_PAGE_SIZE=5,empListPage=1,adminListPage=1,empHistoryPage=1,adminHistoryPage=1,unitExpensePage=1;
+var CLAIMS_PAGE_SIZE=5,empListPage=1,adminListPage=1,empHistoryPage=1,adminHistoryPage=1,unitExpensePage=1,payListPage=1;
 var empDashMonth='All',empDashYear='All';
 var dashFltMonth='All',dashFltYear='All',dashFltUnit='All';
 var empHistMonth='All',empHistYear='All';
 var adminHistMonth='All',adminHistYear='All',adminHistEmp='All';
 var unitExpUnit='All',unitExpMonth='All',unitExpYear='All',unitExpStatus='All';
+var payFltStatus='All',payFltMonth='All',payFltYear='All',payFltUnit='All',payFltEmp='All',paySort='oldest';
 var checkedClaims={},slipFiles=[],slipFileNames=[];
 var mgrFormEmp='',mgrFormPayType='employee';
-var empExpandMap={},editingBankEmp=null;
+var empExpandMap={},payClaimExpandMap={},editingBankEmp=null;
 var fxCollapsed=true;
 var claims=[],BANK_INFO={},EMPS=[],ACTIVE_EMPS=[],UNITS_DATA=[];
 var editingUnit=null,unitFormError='';
@@ -2407,6 +2408,7 @@ function setClaimListPage(listKey,page){
   else if(listKey==='empHistory')empHistoryPage=page;
   else if(listKey==='adminHistory')adminHistoryPage=page;
   else if(listKey==='unitExpense')unitExpensePage=page;
+  else if(listKey==='pay')payListPage=page;
   else empListPage=page;
   render();
 }
@@ -3157,28 +3159,62 @@ function render(){
   }
   else if(S==='adminPay'){
     tbt_el.textContent='Pay Out';bb_el.style.display='block';adminNav('pay');
-    var appClaims=claims.filter(function(c){return(c.status==='Approved'||c.status==='Auto-Approved')&&c.payType==='employee';});
+    var rawPayClaims=claims.filter(function(c){return(c.status==='Approved'||c.status==='Auto-Approved')&&c.payType==='employee';});
+    var payStatuses=['All','Approved','Auto-Approved'];if(payStatuses.indexOf(payFltStatus)<0)payFltStatus='All';
+    var months=['All'].concat(Object.keys(MONTHS));var years=['All'].concat(YEARS);
+    var payEmpSet=[];rawPayClaims.forEach(function(c){if(c.emp&&payEmpSet.indexOf(c.emp)===-1)payEmpSet.push(c.emp);});
+    var empList=['All'].concat(EMPS.filter(function(e){return payEmpSet.indexOf(e)!==-1;}).concat(payEmpSet.filter(function(e){return EMPS.indexOf(e)===-1;})));
+    var unitList=['All'].concat(UNITS);
+    function payPeriod(c){return(c.expMonth||c.date.slice(0,7));}
+    function ps(v){payFltStatus=v;payListPage=1;render();}function pm(v){payFltMonth=v;payListPage=1;render();}function py(v){payFltYear=v;payListPage=1;render();}function pu(v){payFltUnit=v;payListPage=1;render();}function pe(v){payFltEmp=v;payListPage=1;render();}function pso(v){paySort=v;payListPage=1;render();}
+    window.ps=ps;window.pm=pm;window.py=py;window.pu=pu;window.pe=pe;window.pso=pso;
+    var appClaims=rawPayClaims.filter(function(c){
+      var em_=payPeriod(c);
+      if(payFltStatus!=='All'&&c.status!==payFltStatus)return false;
+      if(payFltMonth!=='All'&&em_.slice(5,7)!==payFltMonth)return false;
+      if(payFltYear!=='All'&&em_.slice(0,4)!==payFltYear)return false;
+      if(payFltUnit!=='All'&&c.unit!==payFltUnit)return false;
+      if(payFltEmp!=='All'&&c.emp!==payFltEmp)return false;
+      return true;
+    }).sort(function(a,b){
+      var av=payPeriod(a)+'|'+(a.date||'')+'|'+(a.id||'');
+      var bv=payPeriod(b)+'|'+(b.date||'')+'|'+(b.id||'');
+      return paySort==='newest'?bv.localeCompare(av):av.localeCompare(bv);
+    });
+    payListPage=clampClaimListPage(payListPage,appClaims.length);
+    var pageClaims=claimListSlice(appClaims,payListPage);
     var selCount=Object.keys(checkedClaims).filter(function(k){return checkedClaims[k];}).length;
-    var totalSel=appClaims.filter(function(c){return checkedClaims[c.id];}).reduce(function(s,c){return s+c.amount;},0);
+    var totalSel=rawPayClaims.filter(function(c){return checkedClaims[c.id];}).reduce(function(s,c){return s+c.amount;},0);
     function toggleAll(emp){var ec=appClaims.filter(function(c){return c.emp===emp;});var allOn=ec.every(function(c){return checkedClaims[c.id];});ec.forEach(function(c){checkedClaims[c.id]=!allOn;});render();}
     function toggleExpand(emp){empExpandMap[emp]=!empExpandMap[emp];render();}
-    window.toggleAll=toggleAll;window.toggleExpand=toggleExpand;
+    function togglePayClaim(id){payClaimExpandMap[id]=!payClaimExpandMap[id];render();}
+    window.toggleAll=toggleAll;window.toggleExpand=toggleExpand;window.togglePayClaim=togglePayClaim;
+    function sq(v){return String(v||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+    function payClaimRow(c){
+      var on=checkedClaims[c.id];var expanded=!!payClaimExpandMap[c.id];var safeId=sq(c.id);
+      var meta=c.id+' · '+(c.emp?c.emp.split(' ')[0]:'—')+' · '+payPeriod(c);
+      var details=expanded?'<div style="margin:0 0 8px 28px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;color:#374151"><div><span style="color:#9ca3af">Unit</span><br>'+((c.unit)||'—')+'</div><div><span style="color:#9ca3af">Category</span><br>'+((c.category)||'—')+'</div><div><span style="color:#9ca3af">Date</span><br>'+c.date+'</div><div><span style="color:#9ca3af">Status</span><br>'+c.status+'</div></div><div style="font-size:11px;color:#2563eb;text-decoration:underline;margin-top:7px;cursor:pointer" onclick="event.stopPropagation();openClaimById(\''+safeId+'\',\'adminPay\')">Open claim details</div></div>':'';
+      return'<div><div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #f3f4f6;cursor:pointer" onclick="togglePayClaim(\''+safeId+'\')"><div class="chk'+(on?' on':'')+'" onclick="event.stopPropagation();checkedClaims[\''+safeId+'\']='+(!on)+';render()">'+(on?'<span style="font-size:10px;color:#fff">✓</span>':'')+'</div><div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+c.desc+'</div><div style="font-size:10px;color:#9ca3af;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+meta+'</div></div><div style="text-align:right;flex-shrink:0"><div style="font-size:12px;font-weight:600;color:#111">RM '+c.amount.toFixed(2)+'</div><div style="font-size:10px;color:#9ca3af">'+(expanded?'Hide':'Details')+'</div></div></div>'+details+'</div>';
+    }
     var byEmpHTML='';
-    var claimEmpSet=[];appClaims.forEach(function(c){if(c.emp&&claimEmpSet.indexOf(c.emp)===-1)claimEmpSet.push(c.emp);});
+    var claimEmpSet=[];pageClaims.forEach(function(c){if(c.emp&&claimEmpSet.indexOf(c.emp)===-1)claimEmpSet.push(c.emp);});
     var payEmps=EMPS.filter(function(e){return claimEmpSet.indexOf(e)!==-1;}).concat(claimEmpSet.filter(function(e){return EMPS.indexOf(e)===-1;}));
     payEmps.forEach(function(emp){
-      var ec=appClaims.filter(function(c){return c.emp===emp;});if(!ec.length)return;
+      var ec=pageClaims.filter(function(c){return c.emp===emp;});if(!ec.length)return;
+      var empAll=appClaims.filter(function(c){return c.emp===emp;});
       var bi=BANK_INFO[emp];var hasBi=hasBankInfo(emp);
-      var empTotal=ec.reduce(function(s,c){return s+c.amount;},0);
-      var empSelTotal=ec.filter(function(c){return checkedClaims[c.id];}).reduce(function(s,c){return s+c.amount;},0);
-      var allSel=ec.every(function(c){return checkedClaims[c.id];});
+      var empTotal=empAll.reduce(function(s,c){return s+c.amount;},0);
+      var empSelTotal=empAll.filter(function(c){return checkedClaims[c.id];}).reduce(function(s,c){return s+c.amount;},0);
+      var allSel=empAll.length&&empAll.every(function(c){return checkedClaims[c.id];});
       var expanded=empExpandMap[emp]!==false;var ini=initials(emp);
-      var claimRows=ec.map(function(c){var on=checkedClaims[c.id];return'<div class="ecr"><div class="chk'+(on?' on':'')+'" onclick="checkedClaims[\''+c.id+'\']='+(!on)+';render()">'+(on?'<span style="font-size:10px;color:#fff">✓</span>':'')+'</div><div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+c.desc+'</div><div style="font-size:10px;color:#9ca3af;font-family:monospace">'+c.id+'</div></div><div style="font-size:12px;font-weight:600;flex-shrink:0;color:#111">RM '+c.amount.toFixed(2)+'</div></div>';}).join('');
+      var claimRows=ec.map(payClaimRow).join('');
       var bankSection=hasBi?'<div class="bank-card" style="margin:9px 0 6px"><div class="bk-row"><span class="bk-lbl">Bank</span><span class="bk-val">'+bi.bank+'</span></div><div class="bk-row"><span class="bk-lbl">Account no.</span><span class="bk-val mono">'+bi.acc+'</span></div><div class="bk-row"><span class="bk-lbl">Account name</span><span class="bk-val">'+bi.fullName+'</span></div></div>'+(empSelTotal>0?'<div class="transfer-summary" style="margin-bottom:9px"><span style="font-size:12px;color:#065f46;font-weight:600">Transfer amount</span><span style="font-size:15px;font-weight:700;color:#065f46">RM '+empSelTotal.toFixed(2)+'</span></div>':''):'<div class="no-bank" style="margin:9px 0 6px"><span style="font-weight:600">No bank info</span> — <span style="text-decoration:underline;cursor:pointer" onclick="openBankEdit(\''+emp+'\')">Add now</span></div>';
-      byEmpHTML+='<div class="emp-pay-card"><div class="eph'+(expanded?'':' no-border')+'" onclick="toggleExpand(\''+emp+'\')"><div class="chk'+(allSel?' on':'')+'" onclick="event.stopPropagation();toggleAll(\''+emp+'\')">'+(allSel?'<span style="font-size:10px;color:#fff">✓</span>':'')+'</div><div class="avatar">'+ini+'</div><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:#111">'+emp+'</div>'+(hasBi?'<div style="font-size:11px;color:#6b7280">'+bi.bank+' · '+bi.acc+'</div>':'<div style="font-size:11px;color:#991b1b">No bank info</div>')+'</div><div style="text-align:right;flex-shrink:0"><div style="font-size:13px;font-weight:600;color:#111">RM '+empTotal.toFixed(2)+'</div><div style="font-size:10px;color:#6b7280">'+ec.length+' claim(s)</div></div><span style="font-size:11px;color:#9ca3af;margin-left:6px">'+(expanded?'▲':'▼')+'</span></div>'+(expanded?'<div style="padding:0 12px 4px">'+bankSection+claimRows+'</div>':'')+'</div>';
+      byEmpHTML+='<div class="emp-pay-card"><div class="eph'+(expanded?'':' no-border')+'" onclick="toggleExpand(\''+emp+'\')"><div class="chk'+(allSel?' on':'')+'" onclick="event.stopPropagation();toggleAll(\''+emp+'\')">'+(allSel?'<span style="font-size:10px;color:#fff">✓</span>':'')+'</div><div class="avatar">'+ini+'</div><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:#111">'+emp+'</div>'+(hasBi?'<div style="font-size:11px;color:#6b7280">'+bi.bank+' · '+bi.acc+'</div>':'<div style="font-size:11px;color:#991b1b">No bank info</div>')+'</div><div style="text-align:right;flex-shrink:0"><div style="font-size:13px;font-weight:600;color:#111">RM '+empTotal.toFixed(2)+'</div><div style="font-size:10px;color:#6b7280">'+empAll.length+' claim(s)</div></div><span style="font-size:11px;color:#9ca3af;margin-left:6px">'+(expanded?'▲':'▼')+'</span></div>'+(expanded?'<div style="padding:0 12px 4px">'+bankSection+claimRows+'</div>':'')+'</div>';
     });
-    var allRows=appClaims.map(function(c){var on=checkedClaims[c.id];return'<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #f3f4f6"><div class="chk'+(on?' on':'')+'" onclick="checkedClaims[\''+c.id+'\']='+(!on)+';render()">'+(on?'<span style="font-size:10px;color:#fff">✓</span>':'')+'</div><div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;color:#111">'+c.desc+'</div><div style="font-size:10px;color:#9ca3af;font-family:monospace">'+c.id+' · '+c.emp.split(' ')[0]+'</div></div><div style="font-size:12px;font-weight:600;flex-shrink:0;color:#111">RM '+c.amount.toFixed(2)+'</div></div>';}).join('');
-    ms.innerHTML='<div class="scr"><div class="tab-bar"><div class="tab-opt'+(payTab==='byEmp'?' on':'')+'" onclick="payTab=\'byEmp\';render()">By employee</div><div class="tab-opt'+(payTab==='all'?' on':'')+'" onclick="payTab=\'all\';render()">All claims</div></div>'+(appClaims.length===0?'<div style="text-align:center;padding:20px;font-size:12px;color:#6b7280">No approved claims pending</div>':payTab==='byEmp'?(byEmpHTML||'<div style="text-align:center;padding:20px;font-size:12px;color:#6b7280">No approved claims</div>'):'<div style="background:#f9fafb;border-radius:12px;padding:0 12px;border:1px solid #e5e7eb">'+(allRows||'')+'</div>')+'<div style="background:#f9fafb;border-radius:12px;padding:11px;border:1px solid #e5e7eb;margin-top:4px"><div style="font-size:12px;font-weight:600;color:#111;margin-bottom:7px">Upload bank transfer slip</div>'+slipBox()+'</div><div style="background:#f9fafb;border-radius:12px;padding:11px;border:1px solid #e5e7eb;margin-top:4px"><div class="sum-row"><span style="color:#6b7280">Selected</span><span>'+selCount+' claim(s)</span></div><div class="sum-row"><span style="color:#6b7280">Total payout</span><span>RM '+totalSel.toFixed(2)+'</span></div></div><button class="pbtn btn-w" style="margin-top:4px" onclick="markClaimed()">Mark as Claimed</button></div>';
+    var allRows=pageClaims.map(payClaimRow).join('');
+    var filterBox='<div style="background:#f9fafb;border-radius:12px;padding:9px;border:1px solid #e5e7eb;display:flex;flex-direction:column;gap:5px;margin-bottom:8px"><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Status</div><div class="flt-row">'+payStatuses.map(function(s){return'<span class="chip'+(payFltStatus===s?' on':'')+'" onclick="ps(\''+s+'\')">'+s+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Expense Month</div><div class="flt-row">'+months.map(function(m){return'<span class="chip'+(payFltMonth===m?' on':'')+'" onclick="pm(\''+m+'\')">'+(m==='All'?'All':MONTHS[m])+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Year</div><div class="flt-row">'+years.map(function(y){return'<span class="chip'+(payFltYear===y?' on':'')+'" onclick="py(\''+y+'\')">'+y+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Unit</div><div class="flt-row">'+unitList.map(function(u){return'<span class="chip'+(payFltUnit===u?' on':'')+'" onclick="pu(\''+sq(u)+'\')">'+(u==='All'?'All':u)+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Employee</div><div class="flt-row">'+empList.map(function(e){return'<span class="chip'+(payFltEmp===e?' on':'')+'" onclick="pe(\''+sq(e)+'\')">'+(e==='All'?'All':e.split(' ')[0])+'</span>';}).join('')+'</div></div><div><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Sort</div><div class="flt-row"><span class="chip'+(paySort==='oldest'?' on':'')+'" onclick="pso(\'oldest\')">Oldest first</span><span class="chip'+(paySort==='newest'?' on':'')+'" onclick="pso(\'newest\')">Newest first</span></div></div></div>';
+    var pageSummary='<div style="background:#f9fafb;border-radius:8px;padding:8px 10px;display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:12px;color:#6b7280">'+appClaims.length+' pending payout claim(s)</span><span style="font-size:13px;font-weight:600;color:#111">RM '+appClaims.reduce(function(s,c){return s+c.amount;},0).toFixed(2)+'</span></div>';
+    ms.innerHTML='<div class="scr"><div class="tab-bar"><div class="tab-opt'+(payTab==='byEmp'?' on':'')+'" onclick="payTab=\'byEmp\';payListPage=1;render()">By employee</div><div class="tab-opt'+(payTab==='all'?' on':'')+'" onclick="payTab=\'all\';payListPage=1;render()">All claims</div></div>'+filterBox+pageSummary+(rawPayClaims.length===0?'<div style="text-align:center;padding:20px;font-size:12px;color:#6b7280">No approved claims pending</div>':appClaims.length===0?'<div style="text-align:center;padding:20px;font-size:12px;color:#6b7280">No claims match current filters</div>':payTab==='byEmp'?(byEmpHTML||'<div style="text-align:center;padding:20px;font-size:12px;color:#6b7280">No approved claims on this page</div>'):'<div style="background:#f9fafb;border-radius:12px;padding:0 12px;border:1px solid #e5e7eb">'+(allRows||'')+'</div>')+(appClaims.length?claimListPager('pay',appClaims.length,payListPage):'')+'<div style="background:#f9fafb;border-radius:12px;padding:11px;border:1px solid #e5e7eb;margin-top:4px"><div style="font-size:12px;font-weight:600;color:#111;margin-bottom:7px">Upload bank transfer slip</div>'+slipBox()+'</div><div style="background:#f9fafb;border-radius:12px;padding:11px;border:1px solid #e5e7eb;margin-top:4px"><div class="sum-row"><span style="color:#6b7280">Selected</span><span>'+selCount+' claim(s)</span></div><div class="sum-row"><span style="color:#6b7280">Total payout</span><span>RM '+totalSel.toFixed(2)+'</span></div></div><button class="pbtn btn-w" style="margin-top:4px" onclick="markClaimed()">Mark as Claimed</button></div>';
   }
   else if(S==='adminUsers'){
     tbt_el.textContent='Manage Users';bb_el.style.display='block';adminNav('dash');
