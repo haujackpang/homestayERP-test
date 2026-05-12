@@ -64,12 +64,38 @@ function splitAttachmentRefs(value: unknown) {
   return String(value || "").split(",").map((v) => String(v || "").trim()).filter(Boolean);
 }
 
-function ownerClaimRow(row: Record<string, unknown>) {
+function attachmentStoragePath(ref: unknown) {
+  const raw = String(ref || "").trim();
+  if (!raw) return "";
+  if (!/^https?:\/\//i.test(raw)) return raw;
+  try {
+    const url = new URL(raw);
+    const match = url.pathname.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/receipts\/(.+)$/i);
+    return match?.[1] ? decodeURIComponent(match[1]) : "";
+  } catch {
+    return "";
+  }
+}
+
+async function signedReceiptUrls(admin: ReturnType<typeof createClient>, refs: string[]) {
+  const items: Array<{ path: string; signedUrl: string }> = [];
+  for (const ref of refs) {
+    const path = attachmentStoragePath(ref);
+    if (!path) continue;
+    const { data } = await admin.storage.from("receipts").createSignedUrl(path, 3600);
+    if (data?.signedUrl) items.push({ path, signedUrl: data.signedUrl });
+  }
+  return items;
+}
+
+async function ownerClaimRow(admin: ReturnType<typeof createClient>, row: Record<string, unknown>) {
+  const refs = splitAttachmentRefs(row.receipt_refs);
   return {
     category: String(row.category || "Other"),
     desc: String(row.description || ""),
     amount: moneyNumber(row.amount),
-    receiptRefs: splitAttachmentRefs(row.receipt_refs).join(","),
+    receiptRefs: refs.map(attachmentStoragePath).filter(Boolean).join(","),
+    attachmentUrls: await signedReceiptUrls(admin, refs),
   };
 }
 
@@ -190,13 +216,14 @@ serve(async (req: Request) => {
     });
     const bookingSales = activeReservations.reduce((sum, r) => sum + moneyNumber(r.rental) + moneyNumber(r.extra_guest), 0);
     const cleaningTotal = activeReservations.length * (moneyNumber(cfg.cleaning_fee) + moneyNumber(cfg.laundry_fee));
-    const expenses = shared.map(ownerClaimRow);
+    const expenses = await Promise.all(shared.map((row) => ownerClaimRow(admin, row)));
     if (cleaningTotal > 0) {
       expenses.push({
         category: "Cleaning fee",
         desc: "Booking-based cleaning and laundry",
         amount: cleaningTotal,
         receiptRefs: "",
+        attachmentUrls: [],
       });
     }
     const sharedTotal = shared.reduce((sum, c) => sum + moneyNumber(c.amount), 0) + cleaningTotal;
@@ -214,9 +241,15 @@ serve(async (req: Request) => {
         booking: {
           count: activeReservations.length,
           sales: bookingSales,
+          details: activeReservations.map((r) => ({
+            checkIn: String(r.start_date || ""),
+            checkOut: String(r.end_date || ""),
+            nights: moneyNumber(r.nights),
+            amount: moneyNumber(r.rental) + moneyNumber(r.extra_guest),
+          })),
         },
         expenses,
-        ownerExpenses: owner.map(ownerClaimRow),
+        ownerExpenses: await Promise.all(owner.map((row) => ownerClaimRow(admin, row))),
         summary: {
           homestayProfit,
           managementFee,
