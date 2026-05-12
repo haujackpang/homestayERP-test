@@ -20,6 +20,11 @@ function json(body: Record<string, unknown>, status = 200) {
   });
 }
 
+function missingOwnerAccessTable(error: { message?: unknown } | null | undefined) {
+  const msg = String(error?.message || "").toLowerCase();
+  return msg.includes("does not exist") || msg.includes("could not find") || msg.includes("schema cache");
+}
+
 async function listLoginUsers(admin: ReturnType<typeof createClient>) {
   const perPage = 200;
   const authUsers: Array<Record<string, unknown>> = [];
@@ -33,6 +38,20 @@ async function listLoginUsers(admin: ReturnType<typeof createClient>) {
   (profiles || []).forEach((p) => {
     const id = String(p.id || "");
     if (id) profileById[id] = p as Record<string, unknown>;
+  });
+  const { data: ownerAccess, error: ownerAccessError } = await admin
+    .from("owner_unit_access")
+    .select("owner_id, unit_name");
+  if (ownerAccessError && !missingOwnerAccessTable(ownerAccessError)) {
+    throw ownerAccessError;
+  }
+  const ownerUnitsById: Record<string, string[]> = {};
+  (ownerAccess || []).forEach((row) => {
+    const ownerId = String(row.owner_id || "");
+    const unit = String(row.unit_name || "").trim();
+    if (!ownerId || !unit) return;
+    if (!ownerUnitsById[ownerId]) ownerUnitsById[ownerId] = [];
+    ownerUnitsById[ownerId].push(unit);
   });
 
   let authListError = "";
@@ -77,6 +96,7 @@ async function listLoginUsers(admin: ReturnType<typeof createClient>) {
         full_name: fullName,
         role,
         active,
+        owner_units: ownerUnitsById[id] || [],
         has_profile: !!p,
         source: "auth",
         last_sign_in_at: (u.last_sign_in_at as string) || null,
@@ -94,6 +114,7 @@ async function listLoginUsers(admin: ReturnType<typeof createClient>) {
           full_name: String(p.full_name || p.email || "User").trim(),
           role: String(p.role || "employee"),
           active: p.active !== false,
+          owner_units: ownerUnitsById[String(p.id || "")] || [],
           has_profile: true,
           source: "profile",
           warning: authListError || null,
@@ -101,8 +122,8 @@ async function listLoginUsers(admin: ReturnType<typeof createClient>) {
         })),
     )
     .sort((a, b) => {
-      const aRole = a.role === "admin" ? 0 : a.role === "manager" ? 1 : 2;
-      const bRole = b.role === "admin" ? 0 : b.role === "manager" ? 1 : 2;
+      const aRole = a.role === "admin" ? 0 : a.role === "manager" ? 1 : a.role === "owner" ? 2 : 3;
+      const bRole = b.role === "admin" ? 0 : b.role === "manager" ? 1 : b.role === "owner" ? 2 : 3;
       if (aRole !== bRole) return aRole - bRole;
       return a.full_name.localeCompare(b.full_name);
     });
@@ -130,6 +151,36 @@ async function requireAdmin(req: Request) {
   return admin;
 }
 
+function validRole(role: string) {
+  return ["employee", "manager", "owner"].includes(role);
+}
+
+function ownerUnitsFromBody(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of value) {
+    const unit = String(raw || "").trim();
+    if (!unit || seen.has(unit)) continue;
+    seen.add(unit);
+    out.push(unit);
+  }
+  return out;
+}
+
+async function saveOwnerUnitAccess(admin: ReturnType<typeof createClient>, ownerId: string, role: string, units: string[]) {
+  const { error: deleteError } = await admin.from("owner_unit_access").delete().eq("owner_id", ownerId);
+  if (deleteError) {
+    if (missingOwnerAccessTable(deleteError) && role !== "owner") return;
+    throw deleteError;
+  }
+  if (role !== "owner") return;
+  if (!units.length) throw new Error("Owner accounts need at least one unit");
+  const rows = units.map((unit) => ({ owner_id: ownerId, unit_name: unit }));
+  const { error } = await admin.from("owner_unit_access").insert(rows);
+  if (error) throw error;
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "POST required" }, 405);
@@ -150,9 +201,11 @@ serve(async (req: Request) => {
       const password = String(body.password || "");
       const fullName = String(body.full_name || "").trim();
       const role = String(body.role || "employee");
+      const ownerUnits = ownerUnitsFromBody(body.owner_units);
       if (!username || !password || !fullName) return json({ error: "Username, password and full name are required" }, 400);
       if (password.length < 6) return json({ error: "Password must be at least 6 characters" }, 400);
-      if (!["employee", "manager"].includes(role)) return json({ error: "Role must be employee or manager" }, 400);
+      if (!validRole(role)) return json({ error: "Role must be employee, manager, or owner" }, 400);
+      if (role === "owner" && !ownerUnits.length) return json({ error: "Owner accounts need at least one unit" }, 400);
 
       const email = `${username}@homestay.app`;
       const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -171,11 +224,12 @@ serve(async (req: Request) => {
         active: true,
       });
       if (profileError) throw profileError;
+      await saveOwnerUnitAccess(admin, created.user.id, role, ownerUnits);
 
       if (role === "employee") {
         await admin.from("bank_info").upsert({ employee_name: fullName }, { onConflict: "employee_name" });
       }
-      return json({ ok: true, user: { id: created.user.id, email, full_name: fullName, role, active: true } });
+      return json({ ok: true, user: { id: created.user.id, email, full_name: fullName, role, active: true, owner_units: ownerUnits } });
     }
 
     if (action === "reset-password") {
@@ -194,15 +248,19 @@ serve(async (req: Request) => {
       const fullName = String(body.full_name || "").trim();
       const oldName = String(body.old_name || "").trim();
       const role = String(body.role || "employee");
+      const ownerUnits = ownerUnitsFromBody(body.owner_units);
       const password = body.password ? String(body.password) : "";
       if (!userId || !fullName) return json({ error: "User id and full name are required" }, 400);
       if (password && password.length < 6) return json({ error: "Password must be at least 6 characters" }, 400);
+      if (!validRole(role)) return json({ error: "Role must be employee, manager, or owner" }, 400);
+      if (role === "owner" && !ownerUnits.length) return json({ error: "Owner accounts need at least one unit" }, 400);
 
       const { error: profileError } = await admin
         .from("profiles")
         .update({ full_name: fullName, role })
         .eq("id", userId);
       if (profileError) throw profileError;
+      await saveOwnerUnitAccess(admin, userId, role, ownerUnits);
 
       if (oldName && oldName !== fullName) {
         await admin.from("bank_info").update({ employee_name: fullName }).eq("employee_name", oldName);

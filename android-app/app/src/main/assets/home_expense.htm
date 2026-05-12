@@ -277,6 +277,7 @@ var errorLogs=[],errorLogLoading=false,errorLogPage=1,errorLogTotal=0,errorLogHa
 var ERROR_LOG_PAGE_SIZE=50,frontendLogBusy=false;
 var unitTypes=[],unitConfig=[];
 var rptUnit='',rptMonth='',rptYear='';
+var ownerUnits=[],ownerReport=null,ownerReportLoading=false,ownerReportError='';
 var companyInsightPeriod='';
 var editingUnitType=null,editingUnitCfg=null,utFormError='',ucFormError='';
 var syncLogs=[],syncLoading=false,syncRunning=false,unitSyncing=false;
@@ -660,7 +661,7 @@ async function loadBankInfo(){
     if(!name)return;
     if(p.active===false)inactiveNames[name]=true;
     if(p.role==='admin')adminNames[name]=true;
-    if(p.active!==false&&p.role!=='admin')activeProfileNames.push(name);
+    if(p.active!==false&&p.role!=='admin'&&p.role!=='owner')activeProfileNames.push(name);
   });
   ACTIVE_EMPS=uniqueNames(activeProfileNames);
   if(!ACTIVE_EMPS.length)ACTIVE_EMPS=EMPS.filter(function(e){return!inactiveNames[e]&&!adminNames[e];});
@@ -722,6 +723,31 @@ async function dbUpsertUnitConfig(unitName,ownerName,profitPct,cleaningFee,laund
 }
 async function loadSyncLogs(){var{data}=await sb.from('sync_logs').select('*').order('started_at',{ascending:false}).limit(20);if(data)syncLogs=data;}
 async function loadReservations(){var{data}=await sb.from('reservations').select('*').order('start_date',{ascending:false});if(data)reservations=data;}
+async function loadOwnerInitial(){
+  var d=await callEdgeFunction('owner-report',{action:'init'});
+  ownerUnits=d.units||[];
+  if(ownerUnits.length===1)rptUnit=ownerUnits[0];
+  var today=new Date();
+  if(!rptYear)rptYear=today.getFullYear().toString();
+  if(!rptMonth)rptMonth=(today.getMonth()<9?'0':'')+(today.getMonth()+1);
+}
+async function loadOwnerReport(){
+  if(!rptUnit){ownerReport=null;ownerReportError='Please select a unit';return;}
+  ownerReportLoading=true;ownerReportError='';render();
+  try{
+    var d=await callEdgeFunction('owner-report',{action:'report',unit:rptUnit,period:rptYear+'-'+rptMonth});
+    ownerReport=d.report||null;
+    var rows=[];
+    if(ownerReport){
+      rows=(ownerReport.expenses||[]).concat(ownerReport.ownerExpenses||[]);
+      await hydrateClaimAttachmentUrls(rows);
+    }
+  }catch(e){
+    console.error('loadOwnerReport:',e);
+    ownerReport=null;ownerReportError=e&&e.message?e.message:'Failed to load owner report';
+  }
+  ownerReportLoading=false;render();
+}
 async function triggerSync(){
   syncRunning=true;render();
   try{
@@ -865,7 +891,8 @@ async function doLogout(){
     return;
   }
   await sb.auth.signOut();
-  currentUser=null;currentProfile=null;R=null;S='auth';PS=null;claims=[];BANK_INFO={};EMPS=[];ACTIVE_EMPS=[];UNITS_DATA=[];
+  if(realtimeSub){realtimeSub.unsubscribe();realtimeSub=null;}
+  currentUser=null;currentProfile=null;R=null;S='auth';PS=null;claims=[];BANK_INFO={};EMPS=[];ACTIVE_EMPS=[];UNITS_DATA=[];ownerUnits=[];ownerReport=null;ownerReportError='';
   unitUnavailability=[];
   isSystemAdmin=false;allUsers=[];editingUser=null;userFormError='';editingUnit=null;unitFormError='';
   resetPasswordUser=null;resetPasswordError='';resetPasswordDraft1='';resetPasswordDraft2='';
@@ -879,11 +906,16 @@ async function initSession(user){
   if(prof.active===false){authLoading=false;authError='Your account has been deactivated. Contact admin.';await sb.auth.signOut();S='auth';render();return;}
   currentProfile=prof;
   isSystemAdmin=prof.role==='admin';
-  R=(prof.role==='admin'||prof.role==='manager')?'admin':'employee';
-  await loadAll();
-  setupRealtime();
+  R=prof.role==='owner'?'owner':((prof.role==='admin'||prof.role==='manager')?'admin':'employee');
+  if(R==='owner'){
+    if(realtimeSub){realtimeSub.unsubscribe();realtimeSub=null;}
+    await loadOwnerInitial();
+  }else{
+    await loadAll();
+    setupRealtime();
+  }
   authLoading=false;
-  S=isSystemAdmin?'adminUsers':R==='admin'?'adminDash':'empHome';
+  S=R==='owner'?'ownerReportHome':(isSystemAdmin?'adminUsers':R==='admin'?'adminDash':'empHome');
   render();
 }
 
@@ -901,6 +933,21 @@ async function loadUsers(){
     userListSource=allUsers.some(function(u){return u.source==='profile';})?'profile':'auth';
   }catch(e){console.error('loadUsers:',e);toast('User list failed: '+e.message);}
 }
+function selectedOwnerUnits(){
+  return Array.prototype.slice.call(document.querySelectorAll('.owner-unit-check:checked')).map(function(el){return el.value;});
+}
+function ownerUnitPickerHtml(selected){
+  var selectedMap={};
+  (selected||[]).forEach(function(u){selectedMap[u]=true;});
+  var rows=UNITS.filter(function(u){return u&&u!=='MP Office';}).map(function(u){
+    return '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#374151;padding:6px 0"><input class="owner-unit-check" type="checkbox" value="'+esc(u)+'"'+(selectedMap[u]?' checked':'')+'/> '+esc(u)+'</label>';
+  }).join('');
+  return '<div id="owner-unit-wrap" style="display:none;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;background:#f9fafb"><div style="font-size:12px;font-weight:600;color:#111;margin-bottom:4px">Owner Unit Access</div><div style="font-size:10px;color:#6b7280;margin-bottom:6px">Owner accounts can only view reports for selected units.</div>'+(rows||'<div style="font-size:11px;color:#9ca3af">No units available</div>')+'</div>';
+}
+function toggleOwnerUnitPicker(){
+  var role=document.getElementById('uf-role'),wrap=document.getElementById('owner-unit-wrap');
+  if(wrap)wrap.style.display=role&&role.value==='owner'?'block':'none';
+}
 async function createUserAccount(){
   var u=document.getElementById('uf-user'),p=document.getElementById('uf-pw'),n=document.getElementById('uf-name'),r=document.getElementById('uf-role');
   if(!u||!p||!n||!r||!u.value.trim()||!p.value||!n.value.trim()){userFormError='Please fill all fields';render();return;}
@@ -908,8 +955,10 @@ async function createUserAccount(){
   var username=u.value.trim().toLowerCase();
   var fullName=n.value.trim();
   var role=r.value;
+  var ownerUnitList=role==='owner'?selectedOwnerUnits():[];
+  if(role==='owner'&&!ownerUnitList.length){userFormError='Please bind at least one owner unit';render();return;}
   try{
-    await callEdgeFunction('admin-users',{action:'create',username:username,password:p.value,full_name:fullName,role:role});
+    await callEdgeFunction('admin-users',{action:'create',username:username,password:p.value,full_name:fullName,role:role,owner_units:ownerUnitList});
   }catch(e){userFormError=e.message||'Failed to create user';render();return;}
   userFormError='';
   await loadUsers();await loadBankInfo();
@@ -924,8 +973,10 @@ async function updateUserAccount(){
   var fullName=n.value.trim();
   var role=r?r.value:editingUser.role;
   var oldName=editingUser.full_name;
+  var ownerUnitList=role==='owner'?selectedOwnerUnits():[];
+  if(role==='owner'&&!ownerUnitList.length){userFormError='Please bind at least one owner unit';render();return;}
   try{
-    await callEdgeFunction('admin-users',{action:'update',user_id:editingUser.id,full_name:fullName,old_name:oldName,role:role,password:p&&p.value?p.value:''});
+    await callEdgeFunction('admin-users',{action:'update',user_id:editingUser.id,full_name:fullName,old_name:oldName,role:role,password:p&&p.value?p.value:'',owner_units:ownerUnitList});
   }catch(e){userFormError=e.message||'Failed to update user';render();return;}
   userFormError='';editingUser=null;
   await loadUsers();await loadBankInfo();
@@ -1046,7 +1097,7 @@ function activateLocalPreview(){
   S='previewHome';
   PS=null;
 }
-function companyInsightsIsWideScreen(screen){return ['reportHome','unitExpenses','reportView','companyInsights','unitConfigList','unitConfigForm','reservationSync'].indexOf(screen)>=0;}
+function companyInsightsIsWideScreen(screen){return ['reportHome','unitExpenses','reportView','companyInsights','unitConfigList','unitConfigForm','reservationSync','ownerReportHome','ownerReportView'].indexOf(screen)>=0;}
 function companyInsightsMonthLabel(period){
   var p=String(period||'').split('-');
   if(p.length!==2)return period||'';
@@ -1599,7 +1650,7 @@ function ss(s,p){
 }
 function adminHomeScreen(){return isSystemAdmin?'adminUsers':'adminDash';}
 function goBack(){
-  var fallback=R==='admin'?adminHomeScreen():'empHome';
+  var fallback=R==='owner'?'ownerReportHome':(R==='admin'?adminHomeScreen():'empHome');
   var target=normalizeAdminScreenName(PS||fallback);
   ss(target);
 }
@@ -2017,6 +2068,12 @@ function viewReceiptBox(existingRefs){
   });
   html+='</div>';
   return html;
+}
+function ownerExpenseRowsHTML(rows){
+  if(!rows||!rows.length)return'<div style="font-size:11px;color:#9ca3af;padding:8px 0">No expenses</div>';
+  return rows.map(function(r){
+    return '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div style="flex:1;min-width:0"><div style="font-size:10px;color:#6b7280;margin-bottom:3px">Category</div><div style="font-size:12px;font-weight:700;color:#111">'+esc(r.category||'Other')+'</div><div style="font-size:10px;color:#6b7280;margin-top:8px;margin-bottom:3px">Description</div><div style="font-size:12px;color:#374151;line-height:1.35">'+esc(r.desc||'')+'</div></div><div style="font-size:12px;font-weight:800;color:#111;white-space:nowrap">RM '+(Number(r.amount)||0).toFixed(2)+'</div></div>'+viewReceiptBox(r.receiptRefs||'')+'</div>';
+  }).join('');
 }
 function viewPaymentSlipBox(existingRefs){
   var refs=splitAttachmentRefs(existingRefs);
@@ -2894,6 +2951,12 @@ function render(){
     nav.innerHTML=its.map(function(x){return'<div class="ni'+(a===x[0]?' on':'')+'" onclick="'+x[3]+'"><span class="ni-ic">'+x[1]+'</span>'+x[2]+'</div>';}).join('');
     lo.style.display='block';
   }
+  function ownerNav(a){
+    nav.style.display='flex';
+    var its=[['report','📊','Report',"ss('ownerReportHome')"]];
+    nav.innerHTML=its.map(function(x){return'<div class="ni'+(a===x[0]?' on':'')+'" onclick="'+x[3]+'"><span class="ni-ic">'+x[1]+'</span>'+x[2]+'</div>';}).join('');
+    lo.style.display='block';
+  }
 
   // ===== AUTH SCREEN =====
   if(S==='previewHome'){
@@ -2907,9 +2970,33 @@ function render(){
     return;
   }
 
-  tbr_el.style.display='block';tbr_el.textContent=isSystemAdmin?'Admin - '+myName():R==='admin'?'Manager - '+myName():'Employee - '+myName();
+  if(R==='owner'&&['ownerReportHome','ownerReportView'].indexOf(S)<0){
+    toast('Owner accounts can only access reports');
+    S='ownerReportHome';
+  }
+  tbr_el.style.display='block';tbr_el.textContent=isSystemAdmin?'Admin - '+myName():R==='admin'?'Manager - '+myName():R==='owner'?'Owner - '+myName():'Employee - '+myName();
 
-  if(S==='empHome'){
+  if(S==='ownerReportHome'){
+    tbt_el.textContent='Owner Reports';bb_el.style.display='none';ownerNav('report');
+    var todayO=new Date();
+    if(!rptYear)rptYear=todayO.getFullYear().toString();
+    if(!rptMonth)rptMonth=(todayO.getMonth()<9?'0':'')+(todayO.getMonth()+1);
+    if(!rptUnit&&ownerUnits.length===1)rptUnit=ownerUnits[0];
+    var oUnitOpts=ownerUnits.map(function(u){return'<option value="'+esc(u)+'"'+(rptUnit===u?' selected':'')+'>'+esc(u)+'</option>';}).join('');
+    var oMonthOpts=Object.entries(MONTHS).map(function(e){return'<option value="'+e[0]+'"'+(rptMonth===e[0]?' selected':'')+'>'+e[1]+'</option>';}).join('');
+    var oYearOpts=YEARS.map(function(y){return'<option value="'+y+'"'+(rptYear===y?' selected':'')+'>'+y+'</option>';}).join('');
+    ms.innerHTML='<div class="scr"><div style="font-size:15px;font-weight:700;color:#111;margin-bottom:2px">Owner Report</div><div style="font-size:11px;color:#6b7280;margin-bottom:12px">Select unit and period</div>'+(ownerReportError?'<div style="background:#fee2e2;color:#991b1b;font-size:12px;padding:8px 12px;border-radius:8px;margin-bottom:8px">'+esc(ownerReportError)+'</div>':'')+'<div class="fg"><label class="fl">Unit *</label><select class="fi" id="rpt-unit" onchange="rptUnit=this.value"><option value="">— Select unit —</option>'+oUnitOpts+'</select></div><div class="tcol"><div class="fg"><label class="fl">Month</label><select class="fi" id="rpt-month" onchange="rptMonth=this.value">'+oMonthOpts+'</select></div><div class="fg"><label class="fl">Year</label><select class="fi" id="rpt-year" onchange="rptYear=this.value">'+oYearOpts+'</select></div></div><button class="pbtn btn-p" onclick="openOwnerReportView()"'+(ownerReportLoading?' disabled':'')+'>'+(ownerReportLoading?'Loading...':'View Report')+'</button></div>';
+  }
+  else if(S==='ownerReportView'){
+    tbt_el.textContent='Owner Report';bb_el.style.display='block';ownerNav('report');
+    var r=ownerReport;
+    if(!r){ms.innerHTML='<div class="scr"><div style="text-align:center;padding:18px;font-size:12px;color:#6b7280">No report loaded</div><button class="pbtn btn-p" onclick="ss(\'ownerReportHome\')">Back to Reports</button></div>';return;}
+    var booking=r.booking||{},summary=r.summary||{};
+    var expenseTotal=(r.expenses||[]).reduce(function(s,x){return s+(Number(x.amount)||0);},0);
+    var ownerExpenseTotal=(r.ownerExpenses||[]).reduce(function(s,x){return s+(Number(x.amount)||0);},0);
+    ms.innerHTML='<div class="scr"><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;color:#6b7280">Unit</span><span style="font-size:12px;font-weight:600">'+esc(r.unit||'')+'</span></div><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;color:#6b7280">Period</span><span style="font-size:12px;font-weight:600">'+esc(r.monthLabel||'')+'</span></div><div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#6b7280">Owner</span><span style="font-size:12px;font-weight:600">'+esc(r.ownerName||'—')+'</span></div></div><div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px">Bookings This Month</div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Reservations</span><span style="font-size:12px;font-weight:600">'+(booking.count||0)+'</span></div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Sales</span><span style="font-size:12px;font-weight:600">RM '+(Number(booking.sales)||0).toFixed(2)+'</span></div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Owner Profit</span><span style="font-size:12px;font-weight:700">RM '+(Number(summary.ownerProfit)||0).toFixed(2)+'</span></div></div><div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#065f46;background:#d1fae5;padding:6px 10px;border-radius:8px;margin-bottom:6px">Expenses</div>'+ownerExpenseRowsHTML(r.expenses||[])+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#065f46;border-top:2px solid #d1fae5;margin-top:4px"><span>Subtotal Expenses</span><span>RM '+expenseTotal.toFixed(2)+'</span></div></div><div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#1d4ed8;background:#dbeafe;padding:6px 10px;border-radius:8px;margin-bottom:6px">Owner Expenses</div>'+ownerExpenseRowsHTML(r.ownerExpenses||[])+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#1d4ed8;border-top:2px solid #dbeafe;margin-top:4px"><span>Total Owner Expenses</span><span>RM '+ownerExpenseTotal.toFixed(2)+'</span></div></div></div>';
+  }
+  else if(S==='empHome'){
     tbt_el.textContent='My Dashboard';empNav('home');
     var months=['All'].concat(Object.keys(MONTHS));var years=['All'].concat(YEARS);
     function edm(v){empDashMonth=v;render();}function edy(v){empDashYear=v;render();}
@@ -2983,13 +3070,13 @@ function render(){
       // Step 3: Review AI results
       var ai=aiResult||{};
       var descVal=formatAiDescription(ai);
-      var aiMonth=lastMonth;
+      var aiMonth=(ai.suggested&&ai.suggested.expense_month)||ai.expense_month||((ai.date||today).slice(0,7));
       var aiCatOpts=CATS.map(function(c){return'<option value="'+c+'"'+(ai.category===c?' selected':'')+'>'+c+'</option>';}).join('');
       var notReceiptWarn=ai.is_receipt===false?'<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:10px 12px;margin-bottom:8px"><div style="font-size:12px;font-weight:700;color:#92400e">⚠️ May not be a receipt</div><div style="font-size:11px;color:#92400e;margin-top:3px">AI could not confirm this is a valid receipt or invoice. Please verify the details or re-scan with the correct file.</div><button class="pbtn btn-o" style="margin-top:8px;width:100%" onclick="restartAIScan()">↻ Re-scan different file</button></div>':'';
       ms.innerHTML='<div class="scr">'+notReceiptWarn+'<div class="ai-result-card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="font-size:14px">🤖</span><span style="font-size:12px;font-weight:600;color:#065f46">AI Analysis Complete</span><span class="ai-tag">Auto-filled</span></div>'+aiItemsHtml(ai.items)+'<div style="display:flex;justify-content:space-between;padding:6px;margin-top:4px;background:#d1fae5;border-radius:8px"><span style="font-size:12px;font-weight:600;color:#065f46">Total</span><span style="font-size:13px;font-weight:700;color:#065f46">RM '+(ai.total||0).toFixed(2)+'</span></div></div><div class="fg"><label class="fl">Description *</label><textarea class="fi" id="f-desc" rows="4" style="resize:vertical;font-size:12px;line-height:1.4">'+descVal+'</textarea></div><div class="fg"><label class="fl">Category *</label><select class="fi" id="f-cat">'+aiCatOpts+'</select></div><div class="tcol"><div class="fg"><label class="fl">Amount (RM) *</label><input class="fi" id="f-amount" type="number" value="'+(ai.total||'')+'"/></div><div class="fg"><label class="fl">Date *</label><input class="fi" id="f-date" type="date" value="'+(ai.date||today)+'"/></div></div>'+expMonthSelect(aiMonth)+'<div id="rbox">'+receiptBox('')+'</div><div class="arow"><button class="pbtn btn-o" onclick="restartAIScan()">↻ Re-scan</button><button class="pbtn btn-p" onclick="submitNewClaim(false)">Submit Claim</button></div><button class="pbtn btn-o" style="margin-top:4px" onclick="submitNewClaim(true)">Save as Draft</button></div>';
     } else {
       // Manual entry fallback
-      ms.innerHTML='<div class="scr"><div class="info-box" style="background:#fef3c7"><div style="font-size:11px;color:#92400e"><span style="font-weight:600">Manual entry</span> — AI receipt scan is currently disabled.</div></div><div class="fg"><label class="fl">Description *</label><input class="fi" id="f-desc" placeholder="e.g. Electricity Bill - INV12345"/></div><div class="tcol"><div class="fg"><label class="fl">Amount (RM) *</label><input class="fi" id="f-amount" type="number" placeholder="0.00"/></div><div class="fg"><label class="fl">Date *</label><input class="fi" id="f-date" type="date" value="'+today+'"/></div></div>'+expMonthSelect(lastMonth)+'<div id="rbox">'+receiptBox('')+'</div><div class="arow"><button class="pbtn btn-o" onclick="submitNewClaim(true)"'+(claimSubmitBusy?' disabled':'')+'>'+(claimSubmitBusy?'Saving...':'Save Draft')+'</button><button class="pbtn btn-p" onclick="submitNewClaim(false)"'+(claimSubmitBusy?' disabled':'')+'>'+(claimSubmitBusy?'Submitting...':'Submit Claim')+'</button></div></div>';
+      ms.innerHTML='<div class="scr"><div class="info-box" style="background:#fef3c7"><div style="font-size:11px;color:#92400e"><span style="font-weight:600">Manual entry</span> — AI receipt scan is currently disabled.</div></div><div class="fg"><label class="fl">Description *</label><input class="fi" id="f-desc" placeholder="e.g. Electricity Bill - INV12345"/></div><div class="tcol"><div class="fg"><label class="fl">Amount (RM) *</label><input class="fi" id="f-amount" type="number" placeholder="0.00"/></div><div class="fg"><label class="fl">Date *</label><input class="fi" id="f-date" type="date" value="'+today+'"/></div></div><div id="rbox">'+receiptBox('')+'</div><div class="arow"><button class="pbtn btn-o" onclick="submitNewClaim(true)"'+(claimSubmitBusy?' disabled':'')+'>'+(claimSubmitBusy?'Saving...':'Save Draft')+'</button><button class="pbtn btn-p" onclick="submitNewClaim(false)"'+(claimSubmitBusy?' disabled':'')+'>'+(claimSubmitBusy?'Submitting...':'Submit Claim')+'</button></div></div>';
     }
     ms.innerHTML=claimWorkspaceShell('submit',ms.innerHTML);
   }
@@ -3221,7 +3308,7 @@ function render(){
     var userCards=allUsers.map(function(u){
       var displayName=(u.full_name||'').trim()||((u.email||'').split('@')[0]||'User');
       var ini=initials(displayName);
-      var roleTag=u.role==='admin'?'<span style="font-size:10px;color:#1d4ed8;background:#dbeafe;padding:1px 6px;border-radius:99px">Admin</span>':u.role==='manager'?'<span style="font-size:10px;color:#065f46;background:#d1fae5;padding:1px 6px;border-radius:99px">Manager</span>':'<span style="font-size:10px;color:#6b7280;background:#f3f4f6;padding:1px 6px;border-radius:99px">Employee</span>';
+      var roleTag=u.role==='admin'?'<span style="font-size:10px;color:#1d4ed8;background:#dbeafe;padding:1px 6px;border-radius:99px">Admin</span>':u.role==='manager'?'<span style="font-size:10px;color:#065f46;background:#d1fae5;padding:1px 6px;border-radius:99px">Manager</span>':u.role==='owner'?'<span style="font-size:10px;color:#7c2d12;background:#ffedd5;padding:1px 6px;border-radius:99px">Owner</span>':'<span style="font-size:10px;color:#6b7280;background:#f3f4f6;padding:1px 6px;border-radius:99px">Employee</span>';
       var username=(u.email||'').replace('@homestay.app','');
       var isActive=u.active!==false;
       var hasProfile=u.has_profile!==false;
@@ -3240,7 +3327,10 @@ function render(){
   else if(S==='userForm'){
     tbt_el.textContent=editingUser?'Edit User':'Add User';bb_el.style.display='block';adminNav('dash');
     var isEditing=!!editingUser;
-    ms.innerHTML='<div class="scr">'+(userFormError?'<div style="background:#fee2e2;color:#991b1b;font-size:12px;padding:8px 12px;border-radius:8px;text-align:center">'+userFormError+'</div>':'')+(isEditing?'<div class="info-box" style="background:#fef3c7"><div style="font-size:11px;color:#92400e"><span style="font-weight:600">Editing:</span> '+editingUser.full_name+' (@'+editingUser.email.replace('@homestay.app','')+')</div></div>':'<div class="info-box" style="background:#dbeafe"><div style="font-size:11px;color:#1d4ed8">The username will be used for login. Example: username <b>ahmad</b> → login as <b>ahmad</b>.</div></div>')+(isEditing?'':'<div class="fg"><label class="fl">Username *</label><input class="fi" id="uf-user" placeholder="e.g. ahmad" autocapitalize="off"/></div>')+'<div class="fg"><label class="fl">Full name *</label><input class="fi" id="uf-name" value="'+(isEditing?editingUser.full_name:'')+'"/></div><div class="fg"><label class="fl">Role *</label><select class="fi" id="uf-role"><option value="employee"'+(isEditing&&editingUser.role==='employee'?' selected':'')+'>Employee</option><option value="manager"'+(isEditing&&editingUser.role==='manager'?' selected':'')+'>Manager</option></select></div><div class="fg"><label class="fl">Password '+(isEditing?'(leave blank to keep current)':'*')+'</label><input class="fi" id="uf-pw" type="password" placeholder="Min 6 characters"/></div><button class="pbtn btn-s" onclick="'+(isEditing?'updateUserAccount()':'createUserAccount()')+'">'+(isEditing?'Save Changes':'Create Account')+'</button><button class="pbtn btn-o" style="margin-top:6px" onclick="editingUser=null;userFormError=\'\';ss(\'adminUsers\',adminHomeScreen())">Cancel</button></div>';
+    var roleValue=isEditing?editingUser.role:'employee';
+    var ownerPicker=ownerUnitPickerHtml(isEditing?editingUser.owner_units:[]);
+    ms.innerHTML='<div class="scr">'+(userFormError?'<div style="background:#fee2e2;color:#991b1b;font-size:12px;padding:8px 12px;border-radius:8px;text-align:center">'+userFormError+'</div>':'')+(isEditing?'<div class="info-box" style="background:#fef3c7"><div style="font-size:11px;color:#92400e"><span style="font-weight:600">Editing:</span> '+editingUser.full_name+' (@'+editingUser.email.replace('@homestay.app','')+')</div></div>':'<div class="info-box" style="background:#dbeafe"><div style="font-size:11px;color:#1d4ed8">The username will be used for login. Example: username <b>ahmad</b> → login as <b>ahmad</b>.</div></div>')+(isEditing?'':'<div class="fg"><label class="fl">Username *</label><input class="fi" id="uf-user" placeholder="e.g. ahmad" autocapitalize="off"/></div>')+'<div class="fg"><label class="fl">Full name *</label><input class="fi" id="uf-name" value="'+(isEditing?editingUser.full_name:'')+'"/></div><div class="fg"><label class="fl">Role *</label><select class="fi" id="uf-role" onchange="toggleOwnerUnitPicker()"><option value="employee"'+(roleValue==='employee'?' selected':'')+'>Employee</option><option value="manager"'+(roleValue==='manager'?' selected':'')+'>Manager</option><option value="owner"'+(roleValue==='owner'?' selected':'')+'>Owner</option></select></div>'+ownerPicker+'<div class="fg"><label class="fl">Password '+(isEditing?'(leave blank to keep current)':'*')+'</label><input class="fi" id="uf-pw" type="password" placeholder="Min 6 characters"/></div><button class="pbtn btn-s" onclick="'+(isEditing?'updateUserAccount()':'createUserAccount()')+'">'+(isEditing?'Save Changes':'Create Account')+'</button><button class="pbtn btn-o" style="margin-top:6px" onclick="editingUser=null;userFormError=\'\';ss(\'adminUsers\',adminHomeScreen())">Cancel</button></div>';
+    setTimeout(toggleOwnerUnitPicker,0);
   }
   else if(S==='resetPasswordForm'){
     tbt_el.textContent='Reset Password';bb_el.style.display='block';adminNav('dash');
@@ -3474,6 +3564,13 @@ window.openReportView=function(){
   if(!rptUnit){toast('Please select a unit');return;}
   ss('reportView','reportHome');
 };
+window.openOwnerReportView=async function(){
+  var u=document.getElementById('rpt-unit'),m=document.getElementById('rpt-month'),yr=document.getElementById('rpt-year');
+  if(u)rptUnit=u.value;if(m)rptMonth=m.value;if(yr)rptYear=yr.value;
+  if(!rptUnit){toast('Please select a unit');return;}
+  await loadOwnerReport();
+  if(ownerReport)ss('ownerReportView','ownerReportHome');
+};
 window.setCompanyInsightPeriod=function(period){companyInsightPeriod=period;render();};
 window.shiftCompanyInsightPeriod=function(delta){
   var periods=companyInsightsPeriods();
@@ -3600,6 +3697,7 @@ window.doLogin=doLogin;
 window.openUsers=openUsersScreen;
 window.createUserAccount=createUserAccount;
 window.updateUserAccount=updateUserAccount;
+window.toggleOwnerUnitPicker=toggleOwnerUnitPicker;
 window.submitResetPassword=submitResetPassword;
 window.deleteUserAccount=deleteUserAccount;window.reactivateUser=reactivateUser;
 window.editUser=function(uid){

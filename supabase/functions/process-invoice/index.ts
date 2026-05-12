@@ -128,6 +128,64 @@ function attachmentPath(userId: string, claimId: unknown, attachmentType: unknow
   return `claims/${userId}/${claimKey}/${attachmentFolder(attachmentType)}/${Date.now()}_${safeName}`;
 }
 
+function splitAttachmentRefs(value: unknown) {
+  return String(value || "").split(",").map((v) => String(v || "").trim()).filter(Boolean);
+}
+
+function attachmentStoragePath(ref: unknown) {
+  const raw = String(ref || "").trim();
+  if (!raw) return "";
+  if (!/^https?:\/\//i.test(raw)) return raw;
+  try {
+    const url = new URL(raw);
+    const match = url.pathname.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/receipts\/(.+)$/i);
+    return match?.[1] ? decodeURIComponent(match[1]) : "";
+  } catch {
+    return "";
+  }
+}
+
+function reportChargeBucket(unitName: unknown, chargedTo: unknown) {
+  const value = String(chargedTo || "");
+  if (value === "Owner" || value === "Operator" || value === "Both") return value;
+  if (String(unitName || "") === "MP Office") return "";
+  return "Both";
+}
+
+async function ownerAccessibleUnits(admin: ReturnType<typeof createClient>, ownerId: string) {
+  const { data, error } = await admin
+    .from("owner_unit_access")
+    .select("unit_name")
+    .eq("owner_id", ownerId);
+  if (error) throw error;
+  return (data || []).map((row) => String(row.unit_name || "").trim()).filter(Boolean);
+}
+
+async function ownerAllowedReceiptPaths(admin: ReturnType<typeof createClient>, ownerId: string, requestedPaths: string[]) {
+  if (!requestedPaths.length) return true;
+  const requested = new Set(requestedPaths);
+  const units = await ownerAccessibleUnits(admin, ownerId);
+  if (!units.length) return false;
+  const { data: claims, error } = await admin
+    .from("claims")
+    .select("unit, charged_to, status, receipt_refs")
+    .in("unit", units)
+    .in("status", ["Approved", "Claimed", "Auto-Approved", "Company-Paid"]);
+  if (error) throw error;
+  const allowed = new Set<string>();
+  (claims || []).forEach((claim) => {
+    if (reportChargeBucket(claim.unit, claim.charged_to) === "Operator") return;
+    splitAttachmentRefs(claim.receipt_refs).forEach((ref) => {
+      const path = attachmentStoragePath(ref);
+      if (path) allowed.add(path);
+    });
+  });
+  for (const path of requested) {
+    if (!allowed.has(path)) return false;
+  }
+  return true;
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "POST required" }, 405);
@@ -149,6 +207,10 @@ serve(async (req: Request) => {
     if (!profile || profile.active === false) return json({ error: "Profile not active" }, 403);
 
     const body = await req.json();
+    const role = String(profile.role || "");
+    if (role === "owner" && body.action !== "create-claim-attachment-read-urls") {
+      return json({ ok: false, error: "Owner accounts can only read report attachments" }, 403);
+    }
     if (body.action === "create-ai-scan-upload") {
       if (!AI_RECEIPT_SCAN_ENABLED) return json({ ok: false, error: "AI receipt scan is currently disabled" }, 403);
       await ensureReceiptsBucket(admin);
@@ -184,9 +246,13 @@ serve(async (req: Request) => {
     if (body.action === "create-claim-attachment-read-urls") {
       await ensureReceiptsBucket(admin);
       const input = Array.isArray(body.paths) ? body.paths : [];
+      const paths = input.map((rawPath) => attachmentStoragePath(rawPath)).filter(Boolean);
+      if (role === "owner") {
+        const ok = await ownerAllowedReceiptPaths(admin, userData.user.id, paths);
+        if (!ok) return json({ ok: false, error: "Attachment is not available for this owner report" }, 403);
+      }
       const items: Array<{ path: string; signedUrl: string }> = [];
-      for (const rawPath of input) {
-        const path = String(rawPath || "").trim();
+      for (const path of paths) {
         if (!path) continue;
         const { data, error } = await admin.storage.from("receipts").createSignedUrl(path, 3600);
         if (error || !data?.signedUrl) {
