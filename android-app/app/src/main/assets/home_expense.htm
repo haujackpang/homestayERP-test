@@ -1869,11 +1869,6 @@ function attachmentLinkAttrs(ref,url){
   return 'href="'+esc(url||'#')+'" target="_blank" rel="noopener"'+attachmentOpenAttr(ref);
 }
 function openAttachment(ev,ref){
-  var cached=attachmentUrlForRef(ref);
-  if(cached){
-    if(ev&&ev.currentTarget&&ev.currentTarget.tagName==='A')ev.currentTarget.href=cached;
-    return true;
-  }
   if(ev&&ev.preventDefault)ev.preventDefault();
   var popup=null;
   try{popup=window.open('about:blank','_blank','noopener');}catch(e){}
@@ -2071,7 +2066,7 @@ function viewReceiptBox(existingRefs){
     var canOpen=attachmentCanOpen(ref);
     var name=attachmentName(ref,'Receipt ',i);
     var isImg=/\.(jpg|jpeg|png|gif|webp|heic)$/i.test(name);
-    var body='<span style="font-size:18px">'+(isImg?'🖼️':'📄')+'</span><span style="font-size:12px;color:#059669;font-weight:600;flex:1">'+name+'</span><span style="font-size:11px;color:#6b7280">'+(url?'Tap to view →':'Link unavailable')+'</span>';
+    var body='<span style="font-size:18px">'+(isImg?'🖼️':'📄')+'</span><span style="font-size:12px;color:#059669;font-weight:600;flex:1">'+name+'</span><span style="font-size:11px;color:#6b7280">'+(canOpen?'Tap to view →':'Link unavailable')+'</span>';
     html+=canOpen
       ?'<a '+attachmentLinkAttrs(ref,url)+' style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#f0fdf4;border:1px solid #059669;border-radius:10px;text-decoration:none">'+body+'</a>'
       :'<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#f0fdf4;border:1px solid #059669;border-radius:10px">'+body+'</div>';
@@ -2099,7 +2094,7 @@ function viewPaymentSlipBox(existingRefs){
     var url=attachmentUrlForRef(ref);
     var canOpen=attachmentCanOpen(ref);
     var name=attachmentName(ref,'Slip ',i);
-    var body='<span style="font-size:14px">📄</span><span style="font-size:11px;color:#92400e;font-weight:600;flex:1">'+name+'</span><span style="font-size:10px;color:#6b7280">'+(url?'View →':'Link unavailable')+'</span>';
+    var body='<span style="font-size:14px">📄</span><span style="font-size:11px;color:#92400e;font-weight:600;flex:1">'+name+'</span><span style="font-size:10px;color:#6b7280">'+(canOpen?'View →':'Link unavailable')+'</span>';
     html+=canOpen
       ?'<a '+attachmentLinkAttrs(ref,url)+' style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:3px;background:#fef3c7;border:1px dashed #f59e0b;border-radius:10px;text-decoration:none">'+body+'</a>'
       :'<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:3px;background:#fef3c7;border:1px dashed #f59e0b;border-radius:10px">'+body+'</div>';
@@ -2129,7 +2124,7 @@ function managerSlipBox(receiptRefs){
       var canOpen=attachmentCanOpen(ref);
       var name=attachmentName(ref,'Receipt ',i);
       var isImg=/\.(jpg|jpeg|png|gif|webp|heic)$/i.test(name);
-      var linkBody='<span style="font-size:16px">'+(isImg?'🖼️':'📄')+'</span><span style="font-size:11px;color:#059669;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+name+'</span><span style="font-size:10px;color:#6b7280;margin-left:auto">'+(url?'View →':'Link unavailable')+'</span>';
+      var linkBody='<span style="font-size:16px">'+(isImg?'🖼️':'📄')+'</span><span style="font-size:11px;color:#059669;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+name+'</span><span style="font-size:10px;color:#6b7280;margin-left:auto">'+(canOpen?'View →':'Link unavailable')+'</span>';
       html+='<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f0fdf4;border:1px solid #059669;border-radius:10px">'+(canOpen?'<a '+attachmentLinkAttrs(ref,url)+' style="display:flex;align-items:center;gap:6px;flex:1;text-decoration:none;overflow:hidden">'+linkBody+'</a>':'<div style="display:flex;align-items:center;gap:6px;flex:1;overflow:hidden">'+linkBody+'</div>')+'<span onclick="removeMgrSlip('+i+')" style="font-size:14px;color:#991b1b;cursor:pointer;padding:2px 8px;flex-shrink:0">✕</span></div>';
     });
     html+='</div>';
