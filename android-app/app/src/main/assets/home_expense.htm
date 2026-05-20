@@ -1635,6 +1635,23 @@ function expMonthSelect(selVal){
   for(var i=-3;i<=1;i++){var d=new Date(now.getFullYear(),now.getMonth()+i,1);var v=d.getFullYear()+'-'+(d.getMonth()+1<10?'0':'')+(d.getMonth()+1);var lbl=MONTHS[(d.getMonth()+1<10?'0':'')+(d.getMonth()+1)]+' '+d.getFullYear();opts.push('<option value="'+v+'"'+(selVal===v?' selected':'')+'>'+lbl+'</option>');}
   return'<div class="fg"><label class="fl">Expense month (belongs to)</label><select class="fi" id="f-expmonth">'+opts.join('')+'</select></div>';
 }
+function descriptionExpenseMonth(desc){
+  var text=String(desc||'').toLowerCase();
+  var map={jan:'01',january:'01',feb:'02',february:'02',mar:'03',march:'03',apr:'04',april:'04',may:'05',jun:'06',june:'06',jul:'07',july:'07',aug:'08',august:'08',sep:'09',sept:'09',september:'09',oct:'10',october:'10',nov:'11',november:'11',dec:'12',december:'12'};
+  var m=text.match(/\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\.?\s*'?(\d{2}|\d{4})\b/);
+  if(!m)return'';
+  var yy=m[2].length===2?('20'+m[2]):m[2];
+  return yy+'-'+map[m[1]];
+}
+function expenseMonthLabel(v){
+  var p=String(v||'').split('-');
+  return p.length===2?(MONTHS[p[1]]||p[1])+' '+p[0]:String(v||'');
+}
+function confirmDescriptionExpenseMonth(desc,expMonth){
+  var inferred=descriptionExpenseMonth(desc);
+  if(!inferred||!expMonth||inferred===expMonth)return true;
+  return confirm('Expense month mismatch: description looks like '+expenseMonthLabel(inferred)+' but selected Expense Month is '+expenseMonthLabel(expMonth)+'. Continue?');
+}
 function setExpenseMonthValue(selectId,val){
   var sel=typeof selectId==='string'?document.getElementById(selectId):selectId;
   if(!sel||!val)return false;
@@ -2349,14 +2366,14 @@ function duplicateClaimMessage(ai){
   if(!dup)return'';
   return 'Duplicate blocked: '+dup.claim_id+'. '+duplicateReasonLabel(dup.duplicate_reason)+' Save as Draft if you need to keep this receipt first.';
 }
-function activeClaimDbDuplicate(emp,date,amount,desc){
+function activeClaimDbDuplicate(emp,expMonth,amount,desc){
   var amt=Number(amount||0).toFixed(2);
-  var dt=String(date||'').slice(0,10);
+  var em=String(expMonth||'');
   var ds=String(desc||'');
   return claims.filter(function(c){
     return c.status!=='Rejected'&&c.status!=='Draft'
       && String(c.emp||'')===String(emp||'')
-      && String(c.date||'').slice(0,10)===dt
+      && String(c.expMonth||c.date.slice(0,7))===em
       && Number(c.amount||0).toFixed(2)===amt
       && String(c.desc||'')===ds;
   })[0]||null;
@@ -2364,10 +2381,10 @@ function activeClaimDbDuplicate(emp,date,amount,desc){
 function dbDuplicateClaimMessage(dup){
   var id=dup&&dup.id?dup.id:'';
   if(id)return'Duplicate blocked: '+id+' already exists. Please edit the existing claim instead of submitting again.';
-  return'Duplicate blocked: an existing claim already has the same employee, date, amount and description. Please edit the existing claim instead.';
+  return'Duplicate blocked: an existing claim already has the same employee, expense month, amount and description. Please edit the existing claim instead.';
 }
 function claimInsertFailureMessage(claim,error,prefix){
-  var dup=activeClaimDbDuplicate(claim.emp,claim.date,claim.amount,claim.desc);
+  var dup=activeClaimDbDuplicate(claim.emp,claim.expMonth||String(claim.date||'').slice(0,7),claim.amount,claim.desc);
   if(dup||String(error&&error.message||'').indexOf('claims_dup_check')>=0)return dbDuplicateClaimMessage(dup);
   return prefix+': '+claimSubmitFailureText(error);
 }
@@ -2381,7 +2398,7 @@ async function findDbExactDuplicateClaimId(claim){
     var q=sb.from('claims')
       .select('claim_id')
       .eq('emp',claim&&claim.emp?claim.emp:'')
-      .eq('date',String(claim&&claim.date?claim.date:'').slice(0,10))
+      .eq('expense_month',claim&&claim.expMonth?claim.expMonth:String(claim&&claim.date?claim.date:'').slice(0,7))
       .eq('amount',claim&&claim.amount!==undefined?claim.amount:0)
       .eq('description',claim&&claim.desc?claim.desc:'')
       .neq('status','Rejected')
@@ -2624,6 +2641,7 @@ async function submitNewClaim(asDraft){
   var desc=document.getElementById('f-desc'),amt=document.getElementById('f-amount'),dt=document.getElementById('f-date'),cat=document.getElementById('f-cat');
   if(!desc||!amt||!dt)return;
   var dv=desc.value,av=parseFloat(amt.value),dtv=dt.value,cv=cat?cat.value:'';
+  var emv=document.getElementById('f-expmonth');var expM=emv?emv.value:(dtv||new Date().toISOString().slice(0,10)).slice(0,7);
   if(!asDraft&&(!dv||!av||!dtv)){toast('Please fill all required fields');return;}
   if(!asDraft&&aiResult&&aiResult.duplicate_claims&&aiResult.duplicate_claims.length){toast(duplicateClaimMessage(aiResult));return;}
   // AI amount mismatch check (Feature 3)
@@ -2631,9 +2649,9 @@ async function submitNewClaim(asDraft){
     if(!confirm('⚠️ Amount mismatch: AI extracted RM '+aiResult.total.toFixed(2)+' but you entered RM '+av.toFixed(2)+'. Submit anyway?'))return;
   }
   // Duplicate check: same employee, same amount, same month, not rejected/draft
-  if(!asDraft&&av&&dtv){
-    var dupMonth=dtv.slice(0,7);
-    var dups=claims.filter(function(c){return c.emp===myName()&&c.amount===av&&c.date.slice(0,7)===dupMonth&&c.status!=='Rejected'&&c.status!=='Draft';});
+  if(!asDraft&&av&&expM){
+    var dupMonth=expM;
+    var dups=claims.filter(function(c){return c.emp===myName()&&Number(c.amount||0).toFixed(2)===Number(av||0).toFixed(2)&&String(c.expMonth||c.date.slice(0,7))===dupMonth&&c.status!=='Rejected'&&c.status!=='Draft';});
     if(dups.length>0)toast('Heads up: You already have a similar claim (RM '+av.toFixed(2)+') in '+dupMonth+'.');
   }
   // Attachment duplicate check: same AI reference number (Feature 1)
@@ -2645,10 +2663,10 @@ async function submitNewClaim(asDraft){
     }
   }
   if(!asDraft){
-    var exactDup=activeClaimDbDuplicate(myName(),dtv||new Date().toISOString().slice(0,10),av||0,dv||'(untitled)');
+    var exactDup=activeClaimDbDuplicate(myName(),expM,av||0,dv||'(untitled)');
     if(exactDup){toast(dbDuplicateClaimMessage(exactDup));return;}
+    if(!confirmDescriptionExpenseMonth(dv,expM))return;
   }
-  var emv=document.getElementById('f-expmonth');var expM=emv?emv.value:(dtv||new Date().toISOString().slice(0,10)).slice(0,7);
   claimSubmitBusy=true;render();
   try{
     var cid=await getNextClaimId('HE');
@@ -2663,7 +2681,7 @@ async function submitNewClaim(asDraft){
     claimSubmitBusy=false;
     if(!insertResult.ok){
       if(isClaimsDupCheckError(insertResult.error)){
-        var dupExact=activeClaimDbDuplicate(nc.emp,nc.date,nc.amount,nc.desc);
+        var dupExact=activeClaimDbDuplicate(nc.emp,nc.expMonth,nc.amount,nc.desc);
         var dupId=(dupExact&&dupExact.id)?dupExact.id:await findDbExactDuplicateClaimId(nc);
         await logClaimSubmitFailure('submitNewClaim.dbInsert',nc,insertResult.error,{as_draft:asDraft,duplicate_of:dupId||''});
         if(dupId&&nc.receiptRefs){
@@ -2709,16 +2727,17 @@ async function submitMgrClaim(){
   var isMP=uv==='MP Office';
   if(!isMP&&(!charged||!charged.value)){toast('Please select who to charge');return;}
   var isCompany=mgrFormPayType==='company';
+  var emv=document.getElementById('f-expmonth');var expM=emv?emv.value:dtv.slice(0,7);
   // Duplicate check: same employee, same amount, same month, not rejected/draft
-  if(av&&dtv){
+  if(av&&expM){
     var dupEmp=isCompany?'':mgrFormEmp;
-    var dupMonth=dtv.slice(0,7);
-    var dups=claims.filter(function(c){return c.emp===dupEmp&&c.amount===av&&c.date.slice(0,7)===dupMonth&&c.status!=='Rejected'&&c.status!=='Draft';});
+    var dupMonth=expM;
+    var dups=claims.filter(function(c){return c.emp===dupEmp&&Number(c.amount||0).toFixed(2)===Number(av||0).toFixed(2)&&String(c.expMonth||c.date.slice(0,7))===dupMonth&&c.status!=='Rejected'&&c.status!=='Draft';});
     if(dups.length>0)toast('Heads up: A similar claim (RM '+av.toFixed(2)+') already exists for '+(dupEmp||'company')+' in '+dupMonth+'.');
   }
-  var exactDup=activeClaimDbDuplicate(isCompany?'':mgrFormEmp,dtv,av,dv);
+  var exactDup=activeClaimDbDuplicate(isCompany?'':mgrFormEmp,expM,av,dv);
   if(exactDup){toast(dbDuplicateClaimMessage(exactDup));return;}
-  var emv=document.getElementById('f-expmonth');var expM=emv?emv.value:dtv.slice(0,7);
+  if(!confirmDescriptionExpenseMonth(dv,expM))return;
   mgrSubmitBusy=true;render();
   try{
     var cid=await getNextClaimId(isCompany?'CO':'MGR');
@@ -2733,7 +2752,7 @@ async function submitMgrClaim(){
     mgrSubmitBusy=false;
     if(!insertResult.ok){
       if(isClaimsDupCheckError(insertResult.error)){
-        var dupExact=activeClaimDbDuplicate(nc.emp,nc.date,nc.amount,nc.desc);
+        var dupExact=activeClaimDbDuplicate(nc.emp,nc.expMonth,nc.amount,nc.desc);
         var dupId=(dupExact&&dupExact.id)?dupExact.id:await findDbExactDuplicateClaimId(nc);
         await logClaimSubmitFailure('submitMgrClaim.dbInsert',nc,insertResult.error,{is_company:isCompany,duplicate_of:dupId||''});
         if(dupId&&nc.receiptRefs){

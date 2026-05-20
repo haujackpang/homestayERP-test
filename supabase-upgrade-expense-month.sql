@@ -10,10 +10,11 @@ ALTER TABLE claims ADD COLUMN IF NOT EXISTS expense_month text;
 UPDATE claims SET expense_month = to_char(date, 'YYYY-MM') WHERE expense_month IS NULL;
 
 -- 3. Duplicate prevention index
--- Prevents same employee submitting same amount+description on same date
+-- Prevents same employee/company submitting same amount+description for the same expense month
 -- (excludes Rejected and Draft claims)
+DROP INDEX IF EXISTS claims_dup_check;
 CREATE UNIQUE INDEX IF NOT EXISTS claims_dup_check
-  ON claims (emp, date, amount, description)
+  ON claims (emp, expense_month, amount, description)
   WHERE status NOT IN ('Rejected', 'Draft');
 
 -- 4. GL Code mapping table for P/L integration
