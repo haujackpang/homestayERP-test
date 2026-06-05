@@ -1888,7 +1888,10 @@ function attachmentLinkAttrs(ref,url){
 function openAttachment(ev,ref){
   if(ev&&ev.preventDefault)ev.preventDefault();
   var popup=null;
-  try{popup=window.open('about:blank','_blank','noopener');}catch(e){}
+  try{
+    popup=window.open('about:blank','_blank');
+    if(popup)popup.opener=null;
+  }catch(e){}
   fetchClaimAttachmentUrl(ref,true).then(function(url){
     if(!url)throw new Error('Attachment unavailable');
     if(popup&&!popup.closed)popup.location.replace(url);
