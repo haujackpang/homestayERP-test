@@ -94,6 +94,7 @@ async function ownerClaimRow(admin: ReturnType<typeof createClient>, row: Record
     category: String(row.category || "Other"),
     desc: String(row.description || ""),
     amount: moneyNumber(row.amount),
+    date: String(row.date || ""),
     receiptRefs: refs.map(attachmentStoragePath).filter(Boolean).join(","),
     attachmentUrls: await signedReceiptUrls(admin, refs),
   };
@@ -176,10 +177,11 @@ serve(async (req: Request) => {
 
     const { data: cfgRows } = await admin
       .from("unit_config")
-      .select("owner_name, service_fee_pct, cleaning_fee, laundry_fee")
+      .select("owner_name, service_fee_pct, cleaning_fee, laundry_fee, business_model")
       .eq("unit_name", unit)
       .limit(1);
     const cfg = (cfgRows && cfgRows[0]) || {};
+    const businessModel = String(cfg.business_model || "owner_profit_sharing");
     const { data: unitRows } = await admin
       .from("units")
       .select("name, source, active, property_short, mapped_unit_name, hp_unit_id");
@@ -191,15 +193,51 @@ serve(async (req: Request) => {
     const approvedStatuses = ["Approved", "Claimed", "Auto-Approved", "Company-Paid"];
     const { data: claimRows, error: claimError } = await admin
       .from("claims")
-      .select("unit, category, description, amount, expense_month, date, charged_to, status, receipt_refs")
+      .select("unit, category, description, amount, expense_month, date, charged_to, status, receipt_refs, source_type")
       .eq("unit", unit)
       .eq("expense_month", period)
       .in("status", approvedStatuses)
       .order("date");
     if (claimError) throw claimError;
 
-    const shared = (claimRows || []).filter((c) => reportChargeBucket(c.unit, c.charged_to) === "Both");
-    const owner = (claimRows || []).filter((c) => reportChargeBucket(c.unit, c.charged_to) === "Owner");
+    const isRentReceipt = (c: Record<string, unknown>) =>
+      String(c.source_type || "") === "long_term_rent" ||
+      (businessModel === "long_term_management" && String(c.category || "") === "Rental");
+    const rentReceipts = (claimRows || []).filter(isRentReceipt);
+    const nonRentClaims = (claimRows || []).filter((c) => !isRentReceipt(c));
+    const shared = nonRentClaims.filter((c) => reportChargeBucket(c.unit, c.charged_to) === "Both");
+    const owner = nonRentClaims.filter((c) => reportChargeBucket(c.unit, c.charged_to) === "Owner");
+    const ownerExpenseTotal = owner.reduce((sum, c) => sum + moneyNumber(c.amount), 0);
+
+    if (businessModel === "long_term_management") {
+      const tenantRentReceived = rentReceipts.reduce((sum, c) => sum + moneyNumber(c.amount), 0);
+      const managementFee = tenantRentReceived * moneyNumber(cfg.service_fee_pct) / 100;
+      return json({
+        ok: true,
+        report: {
+          unit,
+          period,
+          monthLabel: monthLabel(period),
+          ownerName: String(cfg.owner_name || ""),
+          businessModel,
+          rentReceipts: await Promise.all(rentReceipts.map((row) => ownerClaimRow(admin, row))),
+          booking: {
+            count: 0,
+            sales: tenantRentReceived,
+            details: [],
+          },
+          expenses: [],
+          ownerExpenses: await Promise.all(owner.map((row) => ownerClaimRow(admin, row))),
+          summary: {
+            tenantRentReceived,
+            homestayProfit: tenantRentReceived,
+            managementFee,
+            ownerExpenses: ownerExpenseTotal,
+            ownerProfit: tenantRentReceived - managementFee - ownerExpenseTotal,
+          },
+        },
+      });
+    }
 
     const { data: reservations, error: reservationError } = await admin
       .from("reservations")
@@ -229,7 +267,6 @@ serve(async (req: Request) => {
     const sharedTotal = shared.reduce((sum, c) => sum + moneyNumber(c.amount), 0) + cleaningTotal;
     const homestayProfit = bookingSales - sharedTotal;
     const managementFee = homestayProfit * moneyNumber(cfg.service_fee_pct) / 100;
-    const ownerExpenseTotal = owner.reduce((sum, c) => sum + moneyNumber(c.amount), 0);
 
     return json({
       ok: true,
@@ -238,6 +275,8 @@ serve(async (req: Request) => {
         period,
         monthLabel: monthLabel(period),
         ownerName: String(cfg.owner_name || ""),
+        businessModel,
+        rentReceipts: [],
         booking: {
           count: activeReservations.length,
           sales: bookingSales,

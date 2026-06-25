@@ -58,6 +58,11 @@
 - Report PDF homestay management fee is calculated from the unit `Profit Sharing %` against homestay profit.
 - Owner expenses should include only expenses charged to Owner, and exclude Cleaning fee and Homestay Management Fee.
 - Report page and PDF should show Homestay Management Fee and Owner Profit instead of focusing on Total Expenses.
+- Long-term management rent receipts are income evidence, not normal expenses.
+- Long-term rent receipts must be saved with `source_type='long_term_rent'`, `category='Rental'`, `status='Company-Paid'`, `pay_type='company'`, and `charged_to='Operator'`.
+- Backward compatibility: for units configured as `long_term_management`, legacy `category='Rental'` rows are also treated as rent receipts and excluded from expense totals. This compatibility rule must not be applied to non-long-term units.
+- Long-term management owner reports use actual tenant rent receipts for the selected month. Formula: Tenant Rent Received - Management Fee - Owner Expenses = Owner Net.
+- Long-term rent receipts must be excluded from ordinary expense totals, Unit Expenses, manager dashboard company-paid expense totals, and short-term booking report expense calculations.
 
 ## Unit Configuration Rules
 - Cleaning and laundry rates are unit-level settings.
@@ -66,7 +71,7 @@
 - Existing database column `service_fee_pct` may remain as implementation detail unless a migration is explicitly approved.
 - Management Dashboard V1 uses Unit Configuration `Business Model` to split units into `Rented Homestay`, `Owner Profit Sharing`, `Long-term Management`, and `Company Office/Excluded`.
 - `MP Office` must be `Company Office/Excluded`: it can count as company/admin expense, but must not count as homestay occupancy, ADR, RevPAR, booking nights, or unit ranking.
-- `monthly_rent` means company rent cost for `Rented Homestay`; for `Long-term Management`, it is the tenancy rent base used with `Profit Sharing / Management Fee %`.
+- `monthly_rent` means company rent cost for `Rented Homestay`; for `Long-term Management`, it is only a tenancy base reference unless a report explicitly says otherwise.
 - `market_rent_baseline` is a benchmark only. It must not be counted as company revenue or company expense.
 - Market rent baseline should use a low-quartile style reference from comparable PropertyGuru/iProperty listings, then manager records the final accepted amount.
 

@@ -1,5 +1,14 @@
 # Decisions Log
 
+## 2026-06-25: Long-Term Management Rent Receipts Use Actual Tenant Payments
+Decision: Add a dedicated long-term rent receipt workflow for `long_term_management` units. The receipt is stored in `claims` with `source_type='long_term_rent'`, `category='Rental'`, `status='Company-Paid'`, `pay_type='company'`, and `charged_to='Operator'`.
+
+Reason:
+CL B0207 is now long-term rented to a tenant, and the business charges 10% of actual rent received. Owner monthly reports must show tenant rent received, management fee, owner expenses, and owner net without treating the tenant payment as a normal expense.
+
+Compatibility:
+For units configured as `long_term_management`, older `category='Rental'` rows are treated as tenant rent receipts instead of expenses. This only applies to long-term management units so ordinary short-term/rented-homestay rental expenses keep their existing behavior.
+
 ## 2026-05-07: Management Dashboard V1 Business Model Split
 Decision: Company Monthly Insights separates units by business model through Unit Configuration: rented homestay, owner profit sharing, long-term management, and company office/excluded.
 

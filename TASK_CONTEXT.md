@@ -1,6 +1,14 @@
 # Task Context
 
 ## Current Task
+2026-06-25 update (implemented locally, test-first):
+1. Added a dedicated Long-term Rent Receipt manager workflow for units configured as `long_term_management`.
+2. Long-term rent receipts are stored in `claims` as `source_type='long_term_rent'`, `category='Rental'`, `status='Company-Paid'`, `pay_type='company'`, and `charged_to='Operator'`.
+3. Owner report logic for long-term management units now uses actual tenant rent receipt amounts for the selected month, then calculates `Tenant Rent Received - Management Fee - Owner Expenses = Owner Net`.
+4. Long-term rent receipts are excluded from ordinary expense totals, Unit Expenses, dashboard company-paid totals, and short-term booking report expense calculations.
+5. Compatibility fix: once a unit is configured as `long_term_management`, legacy `category='Rental'` rows are treated as tenant rent receipts, not expenses. This does not apply to non-long-term units.
+6. No live data migration or live deployment was performed; live promotion still requires explicit approval.
+
 Current focus:
 1. Fix manager/admin claim visibility so pending `Submitted` claimable expenses appear in the `Claims` page.
 2. Keep claim-review queues claimable-only by excluding `Company-Paid` from `My Claims` and `All Claims`, while preserving company-paid totals in dashboard/report views.
@@ -147,6 +155,61 @@ Recent unit-pairing context:
 - Editing a `source='hostplatform'` row should open a pairing-focused form, while editing a non-HP row should open the internal-unit form.
 - The pairing screen should be the primary place where admins pair HostPlatform rows to internal units.
 - `Display code (optional)` is editable only for internal units and read-only when shown in HostPlatform pairing.
+
+## 2026-05-23 V2 Google Sheet Expense Import Log
+- Scope: imported Jan-Apr 2026 historical Google Sheet expenses into live only.
+- Live target used and verified: Supabase project `skwogboredsczcyhlqgn`, repo `haujackpang/homestay-expenses`.
+- Test project boundary: `afcifzghlkxvnpulahub` was treated as test and was not used for the import.
+- Source material:
+  - user-provided unit expense Google Sheets were treated as source of truth for rows and attachments
+  - generated staging sheet was `Google Sheet Expense Final Staging Jan-Apr 2026`
+  - connector account verified later as `homesweethome09661@gmail.com`
+- Business decisions applied:
+  - import status was `Company-Paid`
+  - blank `submit_by` defaulted to `Jack Pang`
+  - `S16` was allowed as a new rental-sharing unit
+  - `Admiral A2208` was mapped/handled as `MP Office`
+  - previous `coco` naming was treated as renamed to `34F`
+  - rows marked `REVIEW_RENTAL_SCOPE` were imported
+  - rows marked `REVIEW_SOURCE_DUP` kept the unique row and skipped duplicates
+  - `SKIP_EXISTING_SPLIT` rows stayed skipped
+  - user confirmed 4 exact duplicate rows must be skipped: `Atlantis row 410`, `Landed row 775`, `Landed row 776`, `Landed row 779`
+- Final import result:
+  - 222 claims inserted into live
+  - 351 attachments uploaded to Supabase Storage bucket `receipts`
+  - all inserted claims used `external_source='google_sheet_v2_jan_apr_2026'`
+  - status for inserted claims is `Company-Paid`
+  - post-import verification returned `inserted_count=222`, `company_paid_count=222`, `receipt_count_mismatches=0`, `empty_receipt_refs=0`, `skipped_rows_inserted=0`
+- Duplicate handling:
+  - live DB duplicate guard is `claims_dup_check` on `(emp, expense_month, amount, description)`, excluding `Rejected` and `Draft`
+  - 10 planned rows across different units would collide with that guard because `unit` is not part of the unique key
+  - no schema change was made and no import row was removed for those 10 rows
+  - the 10 rows were disambiguated by appending unit to description, for example `Parking Fees Jan 2026 [IR B1506]`
+- Cleanup completed:
+  - local temporary import outputs and helper scripts were removed: `outputs/`, `scripts/`
+  - temporary SQL files removed: `supabase-active-units-readonly.sql`, `supabase-claims-jan-apr-readonly.sql`, `supabase-google-sheet-expense-dryrun.sql`, `supabase-google-sheet-keyword-review.sql`
+  - temporary `debug.log` removed
+  - the Supabase Storage `_codex_probe` test object was removed
+- Cleanup intentionally not done:
+  - `.worktrees/` was preserved because it supports the local live/test split workflow
+  - `manuals/`, screenshots, dashboard/report SQL, and `supabase/functions/owner-report/` were preserved because they were not clearly part of this import temp set
+  - Google Drive staging sheet was identified but not deleted by Codex because the available Drive connector actions did not expose delete/trash; user can manually trash `Google Sheet Expense Final Staging Jan-Apr 2026`
+
+## 2026-05-27 Supabase Data API Grant Preparation
+- Supabase announced that new public-schema tables/functions will no longer be automatically exposed to the Data API for new projects from 2026-05-30, and for new tables across existing projects from 2026-10-30.
+- Preparation added:
+  - `supabase-data-api-grants.sql`: idempotent baseline grant script for this app's public Data API access.
+  - `supabase-data-api-grants-audit.sql`: Dashboard-friendly audit for table/function grants.
+  - `supabase-data-api-table-grants-audit.sql`: CLI-friendly table grant audit.
+- Test Supabase project `afcifzghlkxvnpulahub` was explicitly linked and `supabase-data-api-grants.sql` was applied successfully.
+- Test audit after applying grants showed:
+  - business tables have explicit `SELECT`, `INSERT`, `UPDATE`, and `DELETE` grants for `authenticated` and `service_role`
+  - old default broad privileges such as `TRUNCATE`, `REFERENCES`, and `TRIGGER` were revoked from app roles
+  - `anon` broad table grants were revoked
+  - `anon` keeps only `INSERT` on `error_logs` for pre-login/browser diagnostics
+  - helper RPC functions `get_my_role`, `get_my_name`, and `find_possible_duplicate_claims` have explicit `EXECUTE` for `authenticated` and `service_role`
+- Important rule for future DB scripts: whenever a script creates a table or RPC function that must be accessed through `supabase-js`, PostgREST, or GraphQL, add explicit `GRANT` statements in the same rollout or rerun `supabase-data-api-grants.sql` afterward.
+- Live Supabase was not changed in this preparation pass because live privilege changes require explicit approval in the same turn.
 
 ## Do Not Do
 - Do not move future changes to live unless explicitly requested again after this promotion is finished.
