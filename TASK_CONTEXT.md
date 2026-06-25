@@ -7,7 +7,8 @@
 3. Owner report logic for long-term management units now uses actual tenant rent receipt amounts for the selected month, then calculates `Tenant Rent Received - Management Fee - Owner Expenses = Owner Net`.
 4. Long-term rent receipts are excluded from ordinary expense totals, Unit Expenses, dashboard company-paid totals, and short-term booking report expense calculations.
 5. Compatibility fix: once a unit is configured as `long_term_management`, legacy `category='Rental'` rows are treated as tenant rent receipts, not expenses. This does not apply to non-long-term units.
-6. No live data migration or live deployment was performed; live promotion still requires explicit approval.
+6. Deployed to test on 2026-06-25: pushed commit `715d0bb` to `homestayERP-test/main` and deployed `owner-report` to test Supabase project `afcifzghlkxvnpulahub`.
+7. No live data migration or live deployment was performed; live promotion still requires explicit approval.
 
 Current focus:
 1. Fix manager/admin claim visibility so pending `Submitted` claimable expenses appear in the `Claims` page.
