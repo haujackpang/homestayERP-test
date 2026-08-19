@@ -58,6 +58,11 @@
 - Report PDF homestay management fee is calculated from the unit `Profit Sharing %` against homestay profit.
 - Owner expenses should include only expenses charged to Owner, and exclude Cleaning fee and Homestay Management Fee.
 - Report page and PDF should show Homestay Management Fee and Owner Profit instead of focusing on Total Expenses.
+- Guest-requested completed extra service is recorded at reservation level and reported under `Other` with the fixed label `Extra cleaning`.
+- The fixed `Extra cleaning` label applies whether the actual request was cleaning, laundry, hospitality/linen change, or both; the report does not split these into separate fee lines.
+- Extra cleaning is added only after the service is completed. There is no automatic bi-weekly charge or recurring generation.
+- Extra cleaning uses the unit's current cleaning fee plus laundry fee as the per-request amount, records the quantity, and is assigned to the reservation checkout month.
+- Extra cleaning is included in Subtotal Expenses and therefore reduces Homestay Profit; it is not shown under Owner Expenses.
 - Long-term management rent receipts are income evidence, not normal expenses.
 - Long-term rent receipts must be saved with `source_type='long_term_rent'`, `category='Rental'`, `status='Company-Paid'`, `pay_type='company'`, and `charged_to='Operator'`.
 - Backward compatibility: for units configured as `long_term_management`, legacy `category='Rental'` rows are also treated as rent receipts and excluded from expense totals. This compatibility rule must not be applied to non-long-term units.

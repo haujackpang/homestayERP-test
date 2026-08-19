@@ -194,7 +194,14 @@ Recent unit-pairing context:
 - Cleanup intentionally not done:
   - `.worktrees/` was preserved because it supports the local live/test split workflow
   - `manuals/`, screenshots, dashboard/report SQL, and `supabase/functions/owner-report/` were preserved because they were not clearly part of this import temp set
-  - Google Drive staging sheet was identified but not deleted by Codex because the available Drive connector actions did not expose delete/trash; user can manually trash `Google Sheet Expense Final Staging Jan-Apr 2026`
+- Google Drive staging sheet was identified but not deleted by Codex because the available Drive connector actions did not expose delete/trash; user can manually trash `Google Sheet Expense Final Staging Jan-Apr 2026`
+
+## 2026-08-19 Guest-Requested Extra Cleaning
+- User-approved reporting rule: completed guest-requested cleaning, laundry, hospitality/linen change, or combination is recorded as one `Other` item named `Extra cleaning`.
+- The new reservation-level table is `reservation_extra_services`; it stores reservation code, completed service date, quantity, unit rate snapshot, status, and creator.
+- Manager report and PDF include `Other -> Extra cleaning xN`; the amount is quantity multiplied by the unit's cleaning fee plus laundry fee, and follows reservation checkout month.
+- No automatic bi-weekly charge is generated. The manager adds a row only after the service is completed.
+- Test schema and RLS/Data API permissions were applied and verified on Supabase project `afcifzghlkxvnpulahub`; test `owner-report` was redeployed. Frontend test Pages deployment remains the next verification step.
 
 ## 2026-05-27 Supabase Data API Grant Preparation
 - Supabase announced that new public-schema tables/functions will no longer be automatically exposed to the Data API for new projects from 2026-05-30, and for new tables across existing projects from 2026-10-30.

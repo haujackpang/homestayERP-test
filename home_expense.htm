@@ -285,6 +285,8 @@ var syncLogs=[],syncLoading=false,syncRunning=false,unitSyncing=false;
 var showInactiveUnits=false;
 var unitPairingFilter='All',unitPairingSearch='';
 var reservations=[];
+var extraServices=[];
+var extraCleaningTarget=null,extraCleaningFormError='',extraCleaningBusy=false;
 var unitUnavailability=[];
 var ATTACHMENT_URLS={};
 var ATTACHMENT_URL_EXPIRY={};
@@ -575,7 +577,7 @@ function reportSectionRowsHTML(rows){
   if(!rows.length)return'<div style="font-size:11px;color:#9ca3af;padding:5px 0">No expenses</div>';
   return reportCategoryGroups(rows).map(function(group){
     var col=CAT_COLORS[group.category]||'#888';
-    if(group.items.length===1){
+    if(group.items.length===1&&!group.items[0].forceDetail){
       return'<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f3f4f6"><span style="font-size:11px;color:'+col+'">'+esc(group.category)+'</span><span style="font-size:11px;font-weight:600">RM '+group.total.toFixed(2)+'</span></div>';
     }
     var detailRows=group.items.map(function(item){
@@ -717,7 +719,7 @@ async function dbUpdateUnit(id,fields){
   if(error)console.error('dbUpdateUnit:',error);
   return !error;
 }
-async function loadAll(){await loadClaims();await loadBankInfo();await loadUnits();await loadUnitTypes();await loadUnitConfig();await loadSyncLogs();await loadUnitUnavailability();await loadReservations();}
+async function loadAll(){await loadClaims();await loadBankInfo();await loadUnits();await loadUnitTypes();await loadUnitConfig();await loadSyncLogs();await loadUnitUnavailability();await loadReservations();if(R==='admin')await loadExtraServices();}
 async function loadUnitTypes(){var{data}=await sb.from('unit_types').select('*').order('name');if(data)unitTypes=data;}
 async function loadUnitConfig(){var{data}=await sb.from('unit_config').select('*').order('unit_name');if(data)unitConfig=data;}
 async function dbInsertUnitType(name,cf,lf){var{error}=await sb.from('unit_types').insert({name:name.trim(),cleaning_fee:cf,laundry_fee:lf});return !error;}
@@ -749,6 +751,37 @@ async function dbUpsertUnitConfig(unitName,ownerName,profitPct,cleaningFee,laund
 }
 async function loadSyncLogs(){var{data}=await sb.from('sync_logs').select('*').order('started_at',{ascending:false}).limit(20);if(data)syncLogs=data;}
 async function loadReservations(){var{data}=await sb.from('reservations').select('*').order('start_date',{ascending:false});if(data)reservations=data;}
+async function loadExtraServices(){
+  var{data,error}=await sb.from('reservation_extra_services').select('*').order('service_date',{ascending:false}).order('created_at',{ascending:false});
+  if(error){console.error('loadExtraServices:',error);extraServices=[];return;}
+  extraServices=(data||[]).map(function(r){return{id:r.id,reservationCode:r.reservation_code||'',unitName:r.unit_name||'',serviceDate:r.service_date||'',quantity:Number(r.quantity)||0,unitAmount:Number(r.unit_amount)||0,description:r.description||'Extra cleaning',status:r.status||'Completed',createdBy:r.created_by||'',createdAt:r.created_at||''};});
+}
+function extraCleaningRateForUnit(unitName){
+  var cfg=unitConfig.filter(function(x){return x.unit_name===unitName;})[0]||{};
+  return (Number(cfg.cleaning_fee)||0)+(Number(cfg.laundry_fee)||0);
+}
+function extraServiceAmount(row){return (Number(row&&row.quantity)||0)*(Number(row&&row.unitAmount)||0);}
+function extraCleaningRowsForReservations(unitName,rows){
+  var codes=(rows||[]).map(function(r){return String(r&&r.code||'');}).filter(Boolean);
+  return (extraServices||[]).filter(function(s){return s.status==='Completed'&&s.unitName===unitName&&codes.indexOf(String(s.reservationCode||''))>=0;});
+}
+function extraCleaningQuantity(rows){return (rows||[]).reduce(function(sum,row){return sum+(Number(row.quantity)||0);},0);}
+function extraCleaningTotal(rows){return (rows||[]).reduce(function(sum,row){return sum+extraServiceAmount(row);},0);}
+function extraCleaningDescription(rows){return 'Extra cleaning x'+extraCleaningQuantity(rows);}
+function extraCleaningReservationAction(reservation,unitName){
+  var code=String(reservation&&reservation.code||'');
+  if(!code)return'';
+  var rows=(extraServices||[]).filter(function(s){return s.status==='Completed'&&s.unitName===unitName&&String(s.reservationCode||'')===code;});
+  var qty=extraCleaningQuantity(rows);
+  var encoded=encodeURIComponent(code);
+  var summary=qty?'<div style="font-size:10px;color:#92400e;margin-top:6px">'+extraCleaningDescription(rows)+' · RM '+extraCleaningTotal(rows).toFixed(2)+'</div>':'';
+  return summary+'<button class="pbtn btn-o" style="margin-top:6px;padding:5px 8px;font-size:10px" onclick="openExtraCleaningFormByCode(\''+encoded+'\')">+ Extra cleaning</button>';
+}
+async function dbInsertExtraCleaning(row){
+  var{error}=await sb.from('reservation_extra_services').insert({reservation_code:row.reservationCode,unit_name:row.unitName,service_date:row.serviceDate,quantity:row.quantity,unit_amount:row.unitAmount,description:'Extra cleaning',status:'Completed',created_by:currentUser.id});
+  if(error)console.error('dbInsertExtraCleaning:',error);
+  return{ok:!error,error:error};
+}
 async function loadOwnerInitial(){
   var d=await callEdgeFunction('owner-report',{action:'init'});
   ownerUnits=d.units||[];
@@ -2904,7 +2937,7 @@ async function exportReportPDF(){
     function renderPdfExpenseGroups(groups,emptyText){
       if(!groups.length){doc.setFont(undefined,'normal');doc.setFontSize(7.4);doc.setTextColor(45,45,45);doc.text(emptyText,x+2,y);y+=6;return;}
       groups.forEach(function(group){
-        if(group.items.length===1){
+        if(group.items.length===1&&!group.items[0].forceDetail){
           addPageIfNeeded(8);
           doc.setFont(undefined,'normal');doc.setFontSize(7.4);doc.setTextColor(45,45,45);
           doc.text(doc.splitTextToSize(group.category||'',130)[0]||'',x+2,y);
@@ -2952,9 +2985,12 @@ async function exportReportPDF(){
     var bkRev=pdfRes.reduce(function(s,r){return s+parseFloat(r.rental||0)+parseFloat(r.extra_guest||0);},0);
     var cleaningRate=(parseFloat(cfg.cleaning_fee||0)+parseFloat(cfg.laundry_fee||0));
     var cleaningTotal=bkCount*cleaningRate;
+    var pdfExtraCleaningRows=extraCleaningRowsForReservations(rptUnit,pdfRes);
+    var pdfExtraCleaningCount=extraCleaningQuantity(pdfExtraCleaningRows);
+    var pdfExtraCleaningTotal=extraCleaningTotal(pdfExtraCleaningRows);
     var profitPct=parseFloat(cfg.service_fee_pct||0)||0;
     var sharedTotal=shared.reduce(function(s,c){return s+c.amount;},0);
-    var subtotalExpenses=sharedTotal+cleaningTotal;
+    var subtotalExpenses=sharedTotal+cleaningTotal+pdfExtraCleaningTotal;
     var homestayProfit=bkRev-subtotalExpenses;
     var managementFee=homestayProfit*profitPct/100;
     var ownerExpenseTotal=ownerCl.reduce(function(s,c){return s+c.amount;},0);
@@ -3021,6 +3057,7 @@ async function exportReportPDF(){
     section('Expenses Details');
     var expenseRows=shared.slice();
     if(cleaningTotal>0)expenseRows.push({category:'Cleaning fee',amount:cleaningTotal,desc:'Booking-based cleaning and laundry'});
+    if(pdfExtraCleaningTotal>0)expenseRows.push({category:'Other',amount:pdfExtraCleaningTotal,desc:'Extra cleaning x'+pdfExtraCleaningCount,forceDetail:true});
     renderPdfExpenseGroups(reportCategoryGroups(expenseRows),'No owner/shared expenses for this unit/month');
     row('Expenses',money(subtotalExpenses),true);
     row('Homestay Profit',money(homestayProfit),true);y+=2;
@@ -3633,11 +3670,15 @@ function render(){
     var cfRate=parseFloat(utCfg.cleaning_fee||0),lfRate=parseFloat(utCfg.laundry_fee||0);
     var calcClean=bookingCount*cfRate,calcLaundry=bookingCount*lfRate;
     var totalCleaning=calcClean+calcLaundry;
+    var extraCleaningRows=extraCleaningRowsForReservations(rptUnit,rptRes);
+    var extraCleaningCount=extraCleaningQuantity(extraCleaningRows);
+    var extraCleaningTotalAmount=extraCleaningTotal(extraCleaningRows);
     var sharedExpenseRows=sharedCl.slice();
     if(totalCleaning>0)sharedExpenseRows.push({category:'Cleaning fee',amount:totalCleaning,desc:'Booking-based cleaning and laundry'});
+    if(extraCleaningTotalAmount>0)sharedExpenseRows.push({category:'Other',amount:extraCleaningTotalAmount,desc:'Extra cleaning x'+extraCleaningCount,forceDetail:true});
     var legacyNote=legacyChargeToCount?'<div style="font-size:10px;color:#6b7280;margin:-2px 0 6px 2px">Includes '+legacyChargeToCount+' legacy expense(s) missing Charge-to (treated as Both).</div>':'';
     var rptProfitPct=parseFloat(utCfg.service_fee_pct||0)||0;
-    var subtotalExpenses=stS+totalCleaning;
+    var subtotalExpenses=stS+totalCleaning+extraCleaningTotalAmount;
     var homestayProfit=bookingRevenue-subtotalExpenses;
     var managementFee=homestayProfit*rptProfitPct/100;
     var ownerExpensesTotal=stO;
@@ -3647,7 +3688,7 @@ function render(){
       var rental=parseFloat(r.rental||0),extra=parseFloat(r.extra_guest||0);
       var total=rental+extra;
       var guest=esc(r.guest_name||'Guest');
-      return '<div style="background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 9px;margin-top:6px"><div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:5px"><div style="font-size:11px;font-weight:700;color:#111;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+guest+'</div><div style="font-size:11px;font-weight:700;color:#92400e;white-space:nowrap">RM '+total.toFixed(2)+'</div></div><div style="display:grid;grid-template-columns:1fr 1fr 48px;gap:5px"><div><div style="font-size:9px;color:#9ca3af">Check in</div><div style="font-size:10px;color:#374151;font-weight:600">'+fmtDateShort(r.start_date)+'</div></div><div><div style="font-size:9px;color:#9ca3af">Check out</div><div style="font-size:10px;color:#374151;font-weight:600">'+fmtDateShort(r.end_date)+'</div></div><div><div style="font-size:9px;color:#9ca3af">Nights</div><div style="font-size:10px;color:#374151;font-weight:600">'+(r.nights||0)+'</div></div></div></div>';
+      return '<div style="background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 9px;margin-top:6px"><div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:5px"><div style="font-size:11px;font-weight:700;color:#111;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+guest+'</div><div style="font-size:11px;font-weight:700;color:#92400e;white-space:nowrap">RM '+total.toFixed(2)+'</div></div><div style="display:grid;grid-template-columns:1fr 1fr 48px;gap:5px"><div><div style="font-size:9px;color:#9ca3af">Check in</div><div style="font-size:10px;color:#374151;font-weight:600">'+fmtDateShort(r.start_date)+'</div></div><div><div style="font-size:9px;color:#9ca3af">Check out</div><div style="font-size:10px;color:#374151;font-weight:600">'+fmtDateShort(r.end_date)+'</div></div><div><div style="font-size:9px;color:#9ca3af">Nights</div><div style="font-size:10px;color:#374151;font-weight:600">'+(r.nights||0)+'</div></div></div>'+extraCleaningReservationAction(r,rptUnit)+'</div>';
     }).join(''):'<div style="font-size:11px;color:#9ca3af;padding-top:6px">No reservation details for this unit/month</div>';
     rhtml+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px">📅 Bookings This Month</div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Reservations</span><span style="font-size:12px;font-weight:600">'+bookingCount+'</span></div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Sales</span><span style="font-size:12px;font-weight:600">RM '+bookingRevenue.toFixed(2)+'</span></div><div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px dashed #fde68a;margin-top:4px"><span style="font-size:11px;color:#6b7280">Homestay Profit</span><span style="font-size:11px;font-weight:600">RM '+homestayProfit.toFixed(2)+'</span></div><div style="font-size:11px;font-weight:700;color:#92400e;border-top:1px dashed #fde68a;margin-top:7px;padding-top:7px">Reservation Details</div>'+resDetailHtml+'</div>';
     rhtml+='<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#065f46;background:#d1fae5;padding:6px 10px;border-radius:8px;margin-bottom:6px">Expenses</div>'+legacyNote+reportSectionRowsHTML(sharedExpenseRows)+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#065f46;border-top:2px solid #d1fae5;margin-top:4px"><span>Subtotal Expenses</span><span>RM '+subtotalExpenses.toFixed(2)+'</span></div></div>';
@@ -3661,6 +3702,19 @@ function render(){
     rhtml+='<div style="background:#111;border-radius:10px;padding:12px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:12px;font-weight:700;color:#d1fae5">HOMESTAY MANAGEMENT FEE</span><span style="font-size:14px;font-weight:800;color:#d1fae5">RM '+managementFee.toFixed(2)+'</span></div><div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(255,255,255,.18);padding-top:7px"><span style="font-size:13px;font-weight:700;color:#fff">OWNER PROFIT</span><span style="font-size:16px;font-weight:800;color:#fff">RM '+ownerProfit.toFixed(2)+'</span></div></div>';
     rhtml+='<button class="pbtn btn-s" onclick="exportReportPDF()">⬇ Export PDF</button></div>';
     ms.innerHTML=rhtml;
+  }
+  else if(S==='extraCleaningForm'){
+    tbt_el.textContent='Add Extra Cleaning';bb_el.style.display='block';adminNav('report');
+    var et=extraCleaningTarget||{};
+    var erate=extraCleaningRateForUnit(et.unitName||rptUnit);
+    var todayStr=new Date().toISOString().slice(0,10);
+    ms.innerHTML='<div class="scr">'+(extraCleaningFormError?'<div style="background:#fee2e2;color:#991b1b;font-size:12px;padding:8px;border-radius:8px;margin-bottom:8px">'+esc(extraCleaningFormError)+'</div>':'')+
+      '<div class="info-box" style="background:#fffbeb;border-color:#fde68a"><div style="font-size:12px;font-weight:700;color:#92400e">'+esc(et.unitName||rptUnit)+'</div><div style="font-size:11px;color:#6b7280;margin-top:3px">Guest: '+esc(et.guestName||'Guest')+' · Check-out: '+fmtDateShort(et.endDate||'')+'</div><div style="font-size:11px;color:#92400e;margin-top:5px">This request is recorded in the report as <b>Other → Extra cleaning</b>.</div></div>'+
+      '<div class="fg"><label class="fl">Service completed date *</label><input class="fi" id="extra-clean-date" type="date" value="'+esc(et.serviceDate||todayStr)+'"></div>'+
+      '<div class="fg"><label class="fl">Quantity *</label><input class="fi" id="extra-clean-qty" type="number" min="1" step="1" value="1"></div>'+
+      '<div class="info-box" style="background:#f3f4f6"><div style="font-size:11px;color:#374151">Charge per completed request: <b>RM '+erate.toFixed(2)+'</b> (cleaning RM '+(Number((unitConfig.filter(function(x){return x.unit_name===(et.unitName||rptUnit);})[0]||{}).cleaning_fee)||0).toFixed(2)+' + laundry RM '+(Number((unitConfig.filter(function(x){return x.unit_name===(et.unitName||rptUnit);})[0]||{}).laundry_fee)||0).toFixed(2)+')</div><div style="font-size:10px;color:#6b7280;margin-top:4px">The actual service may be cleaning, laundry, hospitality/linen change, or both; the report uses one clear label.</div></div>'+
+      '<button class="pbtn btn-p" onclick="saveExtraCleaning()"'+(extraCleaningBusy?' disabled':'')+'>'+(extraCleaningBusy?'Saving...':'Save Extra Cleaning')+'</button><button class="pbtn btn-o" style="margin-top:6px" onclick="extraCleaningTarget=null;extraCleaningFormError=\'\';ss(\'reportView\',\'reportHome\')">Cancel</button></div>';
+    return;
   }
   else if(S==='cleaningFees'){
     ss('unitConfigList',isSystemAdmin?'adminUnits':'reportHome');
@@ -3737,6 +3791,42 @@ window.openReportView=function(){
   if(u)rptUnit=u.value;if(m)rptMonth=m.value;if(yr)rptYear=yr.value;
   if(!rptUnit){toast('Please select a unit');return;}
   ss('reportView','reportHome');
+};
+window.openExtraCleaningFormByCode=function(encoded){
+  var code='';
+  try{code=decodeURIComponent(String(encoded||''));}catch(e){code=String(encoded||'');}
+  window.openExtraCleaningForm(code);
+};
+window.openExtraCleaningForm=function(code){
+  if(isSystemAdmin||R!=='admin'){toast('Only manager can add extra cleaning');return;}
+  var reservation=(reservations||[]).filter(function(r){return String(r&&r.code||'')===String(code||'');})[0];
+  if(!reservation){toast('Reservation not found. Refresh reservations first.');return;}
+  extraCleaningTarget={reservationCode:String(reservation.code||''),unitName:rptUnit,guestName:reservation.guest_name||'Guest',endDate:reservation.end_date||'',serviceDate:new Date().toISOString().slice(0,10)};
+  extraCleaningFormError='';extraCleaningBusy=false;
+  ss('extraCleaningForm','reportView');
+};
+window.saveExtraCleaning=async function(){
+  if(extraCleaningBusy)return;
+  if(!extraCleaningTarget||!extraCleaningTarget.reservationCode){toast('No reservation selected');return;}
+  var dateEl=document.getElementById('extra-clean-date'),qtyEl=document.getElementById('extra-clean-qty');
+  var serviceDate=dateEl&&dateEl.value?dateEl.value:'';
+  var quantity=qtyEl?parseInt(qtyEl.value,10):0;
+  var today=new Date().toISOString().slice(0,10);
+  var rate=extraCleaningRateForUnit(extraCleaningTarget.unitName||rptUnit);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)){extraCleaningFormError='Please select the completed service date';render();return;}
+  if(serviceDate>today){extraCleaningFormError='Only completed service can be recorded; future date is not allowed';render();return;}
+  if(!Number.isInteger(quantity)||quantity<1){extraCleaningFormError='Quantity must be a whole number of at least 1';render();return;}
+  if(rate<=0){extraCleaningFormError='This unit has no cleaning/laundry rate configured';render();return;}
+  extraCleaningBusy=true;extraCleaningFormError='';render();
+  try{
+    var result=await dbInsertExtraCleaning({reservationCode:extraCleaningTarget.reservationCode,unitName:extraCleaningTarget.unitName||rptUnit,serviceDate:serviceDate,quantity:quantity,unitAmount:rate});
+    if(!result.ok)throw result.error||new Error('Save failed');
+    await loadExtraServices();
+    extraCleaningTarget=null;extraCleaningBusy=false;toast('Extra cleaning added');ss('reportView','reportHome');
+  }catch(e){
+    await logFrontendError('error','extra-cleaning.insert',e&&e.message?e.message:'Extra cleaning save failed',{reservation_code:extraCleaningTarget.reservationCode,unit_name:extraCleaningTarget.unitName,service_date:serviceDate,quantity:quantity});
+    extraCleaningBusy=false;extraCleaningFormError=shortSupabaseErrorMessage(e,'Unable to save extra cleaning');render();
+  }
 };
 window.openOwnerReportView=async function(){
   var u=document.getElementById('rpt-unit'),m=document.getElementById('rpt-month'),yr=document.getElementById('rpt-year');

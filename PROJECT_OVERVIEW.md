@@ -24,6 +24,7 @@ This system helps a homestay operator record expenses, review claims, reimburse 
 - OCR/AI receipt extraction.
 - Error/admin/sync logs.
 - Monthly expense reporting and PDF export.
+- Reservation-level completed extra cleaning service recording, shown in reports as `Other -> Extra cleaning`.
 
 ## Current Stage
 Testing environment remains the default working target in `homestayERP-test`.

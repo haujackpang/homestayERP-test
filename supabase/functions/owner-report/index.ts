@@ -241,7 +241,7 @@ serve(async (req: Request) => {
 
     const { data: reservations, error: reservationError } = await admin
       .from("reservations")
-      .select("start_date, end_date, nights, rental, extra_guest, booking_type, booking_status, unit_name, hp_unit_id")
+      .select("code, start_date, end_date, nights, rental, extra_guest, booking_type, booking_status, unit_name, hp_unit_id")
       .gte("end_date", `${period}-01`)
       .lt("end_date", nextMonthStart(period))
       .order("end_date");
@@ -254,6 +254,21 @@ serve(async (req: Request) => {
     });
     const bookingSales = activeReservations.reduce((sum, r) => sum + moneyNumber(r.rental) + moneyNumber(r.extra_guest), 0);
     const cleaningTotal = activeReservations.length * (moneyNumber(cfg.cleaning_fee) + moneyNumber(cfg.laundry_fee));
+    const reservationCodes = activeReservations.map((r) => String(r.code || "")).filter(Boolean);
+    let extraRows: Array<Record<string, unknown>> = [];
+    if (reservationCodes.length > 0) {
+      const { data, error } = await admin
+        .from("reservation_extra_services")
+        .select("reservation_code, unit_name, service_date, quantity, unit_amount, description, status")
+        .eq("unit_name", unit)
+        .eq("status", "Completed")
+        .in("reservation_code", reservationCodes)
+        .order("service_date");
+      if (error) throw error;
+      extraRows = data || [];
+    }
+    const extraCleaningQuantity = extraRows.reduce((sum, row) => sum + Math.max(0, Math.floor(moneyNumber(row.quantity))), 0);
+    const extraCleaningTotal = extraRows.reduce((sum, row) => sum + moneyNumber(row.quantity) * moneyNumber(row.unit_amount), 0);
     const expenses = await Promise.all(shared.map((row) => ownerClaimRow(admin, row)));
     if (cleaningTotal > 0) {
       expenses.push({
@@ -264,7 +279,16 @@ serve(async (req: Request) => {
         attachmentUrls: [],
       });
     }
-    const sharedTotal = shared.reduce((sum, c) => sum + moneyNumber(c.amount), 0) + cleaningTotal;
+    if (extraCleaningTotal > 0) {
+      expenses.push({
+        category: "Other",
+        desc: `Extra cleaning x${extraCleaningQuantity}`,
+        amount: extraCleaningTotal,
+        receiptRefs: "",
+        attachmentUrls: [],
+      });
+    }
+    const sharedTotal = shared.reduce((sum, c) => sum + moneyNumber(c.amount), 0) + cleaningTotal + extraCleaningTotal;
     const homestayProfit = bookingSales - sharedTotal;
     const managementFee = homestayProfit * moneyNumber(cfg.service_fee_pct) / 100;
 

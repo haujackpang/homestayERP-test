@@ -366,3 +366,9 @@ Decision: When `supabase db query --linked` is blocked by temporary login-role a
 
 Reason:
 On 2026-04-26, the linked test project still had the required manager-readable `claims` and `bank_info` policies, and it still contained a pending `Submitted` employee-paid claim. That means the visibility problem is not caused by missing pending data in test, and the local frontend queue changes remain the primary fix path.
+
+## 2026-08-19: Guest-Requested Extra Service Reporting
+Decision: Record completed reservation-level guest-requested extra service as one `Other` report item named `Extra cleaning`, regardless of whether the actual work was cleaning, laundry, hospitality/linen change, or a combination.
+
+Reason:
+The user found separate cleaning and laundry lines confusing. A single fixed label keeps the report readable while preserving quantity and the configured unit rate. The record is entered only after completion, has no automatic bi-weekly recurrence, and follows the reservation checkout month for reporting.
