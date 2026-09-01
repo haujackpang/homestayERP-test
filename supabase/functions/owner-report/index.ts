@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isBillableGuestReservation } from "../_shared/reservation-classification.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "";
@@ -248,9 +249,8 @@ serve(async (req: Request) => {
     if (reservationError) throw reservationError;
 
     const activeReservations = (reservations || []).filter((r) => {
-      const status = String(r.booking_status || "");
       const unitMatch = aliases.includes(String(r.unit_name || "")) || hpIds.includes(String(r.hp_unit_id || ""));
-      return unitMatch && r.booking_type !== 6 && !status.includes("Cancel") && String(r.end_date || "").slice(0, 7) === period;
+      return unitMatch && isBillableGuestReservation(r) && String(r.end_date || "").slice(0, 7) === period;
     });
     const bookingSales = activeReservations.reduce((sum, r) => sum + moneyNumber(r.rental) + moneyNumber(r.extra_guest), 0);
     const cleaningTotal = activeReservations.length * (moneyNumber(cfg.cleaning_fee) + moneyNumber(cfg.laundry_fee));

@@ -45,6 +45,7 @@
 - Manager report page should show reservation details for the selected unit/month.
 - Reservation detail fields should include guest name, check-in date, check-out date, nights, and total. Total is rental + extra guest.
 - Report sales are assigned by reservation checkout date (`end_date`), not check-in date.
+- HostPlatform `booking_type=5` is a maintenance/block period, not a guest reservation. Keep it for availability history, but exclude it from reservation counts, sales, booking-based cleaning fees, owner/manager reports, PDFs, and guest-booking KPIs.
 - Report PDF title should use the property + unit name when HostPlatform mapping is available.
 - Report PDF booking detail fields should include guest name, check-in date, check-out date, nights, and total. Do not show rental and extra guest as separate columns.
 - Report PDF cleaning fee is calculated as `(unit cleaning fee + unit laundry fee) x checkout-month reservation count`.

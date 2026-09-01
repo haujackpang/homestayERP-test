@@ -1172,7 +1172,7 @@ function companyInsightsPeriods(){
     if(/^\d{4}-\d{2}$/.test(period))bucket[period]=true;
   });
   reservations.forEach(function(r){
-    if(r&&r.booking_type!==6&&!String(r.booking_status||'').match(/Cancel/i))companyInsightsAddPeriodRange(bucket,r.start_date,r.end_date);
+    if(isBillableGuestReservation(r))companyInsightsAddPeriodRange(bucket,r.start_date,r.end_date);
   });
   unitUnavailability.forEach(function(r){companyInsightsAddPeriodRange(bucket,r.start_date,r.end_date);});
   var currentYm=(function(){var now=new Date();return now.getFullYear()+'-'+((now.getMonth()+1<10?'0':'')+(now.getMonth()+1));})();
@@ -1286,7 +1286,8 @@ function companyInsightsOccupancyStatus(days){
   if(d<=20)return{label:'Good',tone:'good'};
   return{label:'Best',tone:'info'};
 }
-function companyInsightsReservationActive(r){return !!(r&&r.start_date&&r.end_date&&r.booking_type!==6&&!String(r.booking_status||'').match(/Cancel/i));}
+function isBillableGuestReservation(r){return !!(r&&Number(r.booking_type)!==5&&Number(r.booking_type)!==6&&!String(r.booking_status||'').match(/Cancel/i));}
+function companyInsightsReservationActive(r){return !!(isBillableGuestReservation(r)&&r.start_date&&r.end_date);}
 function companyInsightsReservationRevenue(r){return (Number(r&&r.rental||0)||0)+(Number(r&&r.extra_guest||0)||0);}
 function companyInsightsReservationRevenueParts(r,cfg){
   var gross=companyInsightsReservationRevenue(r);
@@ -2946,7 +2947,7 @@ async function exportReportPDF(){
     }
     var title=reportTitle();
     var pdfHpIds=hpIdsForDisplayUnit(rptUnit);
-    var pdfRes=reservations.filter(function(r){if(!r.end_date||!r.unit_name)return false;if(r.booking_type===6)return false;if(r.booking_status&&r.booking_status.indexOf('Cancel')>=0)return false;var unitMatch=rptAliases.indexOf(r.unit_name)>=0||(r.hp_unit_id&&pdfHpIds.indexOf(r.hp_unit_id)>=0);return unitMatch&&r.end_date.slice(0,7)===ym;});
+    var pdfRes=reservations.filter(function(r){if(!r.end_date||!r.unit_name||!isBillableGuestReservation(r))return false;var unitMatch=rptAliases.indexOf(r.unit_name)>=0||(r.hp_unit_id&&pdfHpIds.indexOf(r.hp_unit_id)>=0);return unitMatch&&r.end_date.slice(0,7)===ym;});
     pdfRes.sort(function(a,b){return String(a.end_date||'').localeCompare(String(b.end_date||''));});
     var bkCount=pdfRes.length;
     var bkRev=pdfRes.reduce(function(s,r){return s+parseFloat(r.rental||0)+parseFloat(r.extra_guest||0);},0);
@@ -3626,7 +3627,7 @@ function render(){
     }
     // Booking summary from reservations
     var rptHpIds=hpIdsForDisplayUnit(rptUnit);
-    var rptRes=reservations.filter(function(r){if(!r.end_date||!r.unit_name)return false;if(r.booking_type===6)return false;if(r.booking_status&&r.booking_status.indexOf('Cancel')>=0)return false;var resYm=r.end_date.slice(0,7);var unitMatch=rptAliases.indexOf(r.unit_name)>=0||(r.hp_unit_id&&rptHpIds.indexOf(r.hp_unit_id)>=0);return unitMatch&&resYm===ym;});
+    var rptRes=reservations.filter(function(r){if(!r.end_date||!r.unit_name||!isBillableGuestReservation(r))return false;var resYm=r.end_date.slice(0,7);var unitMatch=rptAliases.indexOf(r.unit_name)>=0||(r.hp_unit_id&&rptHpIds.indexOf(r.hp_unit_id)>=0);return unitMatch&&resYm===ym;});
     var bookingCount=rptRes.length;
     var bookingRevenue=rptRes.reduce(function(s,r){return s+parseFloat(r.rental||0)+parseFloat(r.extra_guest||0);},0);
     var utCfg=unitConfig.filter(function(x){return x.unit_name===rptUnit;})[0]||{};
@@ -3699,7 +3700,7 @@ function render(){
     var statusColor=lastStatus==='success'?'#065f46':lastStatus==='error'?'#991b1b':'#92400e';
     var statusBg=lastStatus==='success'?'#d1fae5':lastStatus==='error'?'#fee2e2':'#fef3c7';
     var totalRes=reservations.length;
-    var activeRes=reservations.filter(function(r){return r.booking_status&&r.booking_status.indexOf('Cancel')<0&&r.booking_type!==6;}).length;
+    var activeRes=reservations.filter(function(r){return r.booking_status&&r.booking_status.indexOf('Cancel')<0&&Number(r.booking_type)!==5&&Number(r.booking_type)!==6;}).length;
     var logRows=syncLogs.map(function(l){var ts=new Date(l.started_at);var tStr=ts.toLocaleDateString('en-MY',{day:'2-digit',month:'short'})+' '+ts.toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit',hour12:false});var sc=l.status==='success'?'#065f46':l.status==='error'?'#991b1b':'#92400e';return'<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:11px"><span>'+tStr+'</span><span style="color:'+sc+'">'+l.status+'</span><span>'+l.records_upserted+' rec</span><span style="font-size:10px;color:#6b7280">'+l.sync_type+'</span></div>';}).join('');
     ms.innerHTML='<div class="scr"><div style="display:flex;gap:6px;margin-bottom:10px"><div style="flex:1;background:#dbeafe;border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:#1d4ed8">'+totalRes+'</div><div style="font-size:10px;color:#1d4ed8">Total</div></div><div style="flex:1;background:#d1fae5;border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:#065f46">'+activeRes+'</div><div style="font-size:10px;color:#065f46">Active</div></div><div style="flex:1;background:'+statusBg+';border-radius:8px;padding:8px;text-align:center"><div style="font-size:11px;font-weight:600;color:'+statusColor+'">'+lastStatus+'</div><div style="font-size:9px;color:'+statusColor+'">'+lastTime+'</div></div></div>'+(lastErr?'<div style="background:#fee2e2;color:#991b1b;font-size:11px;padding:8px;border-radius:8px;margin-bottom:8px">'+lastErr+'</div>':'')+'<div style="display:flex;gap:6px;margin-bottom:10px"><button class="pbtn btn-p" style="flex:1" onclick="triggerSync()"'+(syncRunning?' disabled':'')+'>'+(syncRunning?'⏳ Syncing...':'🔄 Sync Now')+'</button><button class="pbtn btn-o" style="flex:1" onclick="refreshSyncScreen()">↻ Refresh</button></div><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Recent Sync History</div>'+logRows+'</div>';
   }

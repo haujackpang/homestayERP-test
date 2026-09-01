@@ -1,5 +1,10 @@
 # Decisions Log
 
+## 2026-09-01: Maintenance Blocks Are Not Guest Reservations
+Decision: Treat HostPlatform `booking_type=5` as a maintenance/block period. Preserve the synced row for audit and availability history, but exclude it from guest reservation counts, sales, booking-based cleaning fees, reports, PDFs, and guest-booking KPIs.
+
+Evidence: LIVE reservation `Y2NLZ1PIW` for LC03 (19–24 Jul 2026) had `booking_type=5`, no guest name, and RM0 charges; it was incorrectly shown as `Guest` in the July report.
+
 ## 2026-06-25: Long-Term Management Rent Receipts Use Actual Tenant Payments
 Decision: Add a dedicated long-term rent receipt workflow for `long_term_management` units. The receipt is stored in `claims` with `source_type='long_term_rent'`, `category='Rental'`, `status='Company-Paid'`, `pay_type='company'`, and `charged_to='Operator'`.
 
