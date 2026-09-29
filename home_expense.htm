@@ -874,8 +874,8 @@ async function saveOwnerSettlement(){
 async function voidOwnerSettlement(id){
   var reason=prompt('Reason for voiding this payment record:');
   if(!reason||!reason.trim())return;
-  var result=await sb.from('owner_settlements').update({status:'void',void_reason:reason.trim(),updated_at:new Date().toISOString()}).eq('id',id).eq('status','paid');
-  if(result.error){settlementError=shortSupabaseErrorMessage(result.error,'Unable to void payment');render();return;}
+  var result=await sb.from('owner_settlements').update({status:'void',void_reason:reason.trim(),updated_at:new Date().toISOString()}).eq('id',id).eq('status','paid').select('id');
+  if(result.error||!result.data||!result.data.length){settlementError=shortSupabaseErrorMessage(result.error,'Payment was not voided');render();return;}
   await logAdminAction('owner-settlement.voided',{unit_name:rptUnit,settlement_id:id});
   await loadSettlementReport();
 }
