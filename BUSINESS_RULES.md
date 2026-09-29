@@ -69,6 +69,10 @@
 - Backward compatibility: for units configured as `long_term_management`, legacy `category='Rental'` rows are also treated as rent receipts and excluded from expense totals. This compatibility rule must not be applied to non-long-term units.
 - Long-term management owner reports use actual tenant rent receipts for the selected month. Formula: Tenant Rent Received - Management Fee - Owner Expenses = Owner Net.
 - Long-term rent receipts must be excluded from ordinary expense totals, Unit Expenses, manager dashboard company-paid expense totals, and short-term booking report expense calculations.
+- Owner profit distributions and owner reimbursements are actual payments recorded in `owner_settlements`, with payment proof in the private `receipts` bucket. They must not be inserted as `claims` or counted again as company expenses.
+- Owner profit due is calculated by the existing owner report. Profit distribution payments reduce the outstanding settlement balance, not company P/L. Partial payments are allowed.
+- Owner reimbursement payments must reference an approved Owner-charged claim. The original claim determines the P/L treatment; the reimbursement is payment evidence only.
+- Voided settlement payments require a reason and remain in the audit history. Paid settlement amounts and proof cannot be edited; correct a mistake by voiding and recording a new payment.
 
 ## Unit Configuration Rules
 - Cleaning and laundry rates are unit-level settings.

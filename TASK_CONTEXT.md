@@ -1,6 +1,12 @@
 # Task Context
 
 ## Current Task
+2026-09-29 TEST implementation:
+1. Add `owner_settlements` for actual profit distribution and owner reimbursement payments with private proof, report snapshot, void audit, and manager-only write access.
+2. Extend `owner-report` to show payment history and outstanding owner profit; managers can fetch a unit report for settlement entry, owners remain limited to assigned units.
+3. Add manager settlement entry and owner report/PDF reconciliation. Do not count payment records again as company expenses.
+4. TEST schema and Edge Functions were applied. Frontend deployment and browser verification are still pending. LIVE was not changed.
+
 2026-06-25 update (implemented locally, test-first):
 1. Added a dedicated Long-term Rent Receipt manager workflow for units configured as `long_term_management`.
 2. Long-term rent receipts are stored in `claims` as `source_type='long_term_rent'`, `category='Rental'`, `status='Company-Paid'`, `pay_type='company'`, and `charged_to='Operator'`.

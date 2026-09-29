@@ -243,6 +243,16 @@ serve(async (req: Request) => {
       });
     }
 
+    if (body.action === "create-owner-settlement-upload") {
+      if (role !== "manager" && role !== "admin") return json({ ok: false, error: "Manager access required" }, 403);
+      await ensureReceiptsBucket(admin);
+      const safeName = safeStorageName(body.fileName);
+      const path = `owner-settlements/${userData.user.id}/${crypto.randomUUID()}_${safeName}`;
+      const { data, error } = await admin.storage.from("receipts").createSignedUploadUrl(path);
+      if (error || !data) return json({ ok: false, error: error?.message || "Failed to prepare proof upload" }, 500);
+      return json({ ok: true, bucket: "receipts", path, token: data.token });
+    }
+
     if (body.action === "create-claim-attachment-read-urls") {
       await ensureReceiptsBucket(admin);
       const input = Array.isArray(body.paths) ? body.paths : [];

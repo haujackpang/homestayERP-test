@@ -1,5 +1,10 @@
 # Decisions Log
 
+## 2026-09-29: Track Actual Owner Payments Separately
+Decision: Store owner profit distributions and owner reimbursements in `owner_settlements`, one row per actual payment. Keep proof private, show paid and outstanding amounts alongside the calculated owner profit, and preserve a report snapshot at payment time.
+
+Reason: Company Insights already recognizes only the company's share for owner profit sharing units. Treating the owner transfer as a second expense would understate company profit. The new ledger reconciles calculated owner liability with actual bank transfers.
+
 ## 2026-09-01: Maintenance Blocks Are Not Guest Reservations
 Decision: Treat HostPlatform `booking_type=5` as a maintenance/block period. Preserve the synced row for audit and availability history, but exclude it from guest reservation counts, sales, booking-based cleaning fees, reports, PDFs, and guest-booking KPIs.
 

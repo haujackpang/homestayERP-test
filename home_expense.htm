@@ -279,6 +279,8 @@ var unitTypes=[],unitConfig=[];
 var rptUnit='',rptMonth='',rptYear='';
 var longTermRentUnit='';
 var ownerUnits=[],ownerReport=null,ownerReportLoading=false,ownerReportError='';
+var settlementReport=null,settlementLoading=false,settlementError='';
+var settlementKind='profit_distribution',settlementBusy=false;
 var companyInsightPeriod='';
 var editingUnitType=null,editingUnitCfg=null,utFormError='',ucFormError='';
 var syncLogs=[],syncLoading=false,syncRunning=false,unitSyncing=false;
@@ -807,6 +809,79 @@ async function loadOwnerReport(){
   }
   ownerReportLoading=false;render();
 }
+async function loadSettlementReport(){
+  if(!rptUnit)return;
+  settlementLoading=true;settlementError='';render();
+  try{
+    var result=await callEdgeFunction('owner-report',{action:'report',unit:rptUnit,period:rptYear+'-'+rptMonth});
+    settlementReport=result.report||null;
+  }catch(e){settlementReport=null;settlementError=e&&e.message?e.message:'Unable to load owner settlement';}
+  settlementLoading=false;render();
+}
+function settlementPaid(rows,kind){
+  return (rows||[]).filter(function(r){return r.kind===kind&&r.status==='paid';}).reduce(function(sum,r){return sum+(Number(r.amount)||0);},0);
+}
+function ownerSettlementToday(){return new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Kuala_Lumpur'});}
+function settlementSummaryHtml(report){
+  if(!report)return '';
+  var expected=Number(report.summary&&report.summary.ownerProfit)||0;
+  var paid=settlementPaid(report.settlements,'profit_distribution');
+  var reimbursement=settlementPaid(report.settlements,'owner_reimbursement');
+  var lines=(report.settlements||[]).map(function(p){
+    var proof=(p.proofUrls||[])[0];
+    var link=proof&&proof.signedUrl?'<a href="'+esc(proof.signedUrl)+'" target="_blank" rel="noopener">View proof</a>':'';
+    return '<div style="font-size:11px;padding:5px 0;border-top:1px solid #e5e7eb">'+esc(p.paid_on)+' · '+esc(p.kind==='profit_distribution'?'Profit distribution':'Owner reimbursement')+' · RM '+(Number(p.amount)||0).toFixed(2)+' '+link+'</div>';
+  }).join('');
+  return '<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:10px;padding:10px 12px;margin:10px 0"><div style="font-size:12px;font-weight:700;margin-bottom:6px">Owner Settlement</div><div style="font-size:11px">Calculated owner profit: RM '+expected.toFixed(2)+'</div><div style="font-size:11px">Profit distribution paid: RM '+paid.toFixed(2)+'</div><div style="font-size:11px;font-weight:700">Outstanding: RM '+(expected-paid).toFixed(2)+'</div><div style="font-size:11px;margin-top:5px">Owner reimbursements paid: RM '+reimbursement.toFixed(2)+' (tracked separately)</div>'+lines+'</div>';
+}
+async function saveOwnerSettlement(){
+  if(settlementBusy||!settlementReport)return;
+  var amountEl=document.getElementById('os-amount'),dateEl=document.getElementById('os-date'),proofEl=document.getElementById('os-proof');
+  var refEl=document.getElementById('os-reference'),noteEl=document.getElementById('os-note'),claimEl=document.getElementById('os-claim');
+  var amount=Number(amountEl&&amountEl.value),paidOn=dateEl&&dateEl.value,proof=proofEl&&proofEl.files&&proofEl.files[0];
+  var reference=String(refEl&&refEl.value||'').trim(),note=String(noteEl&&noteEl.value||'').trim();
+  var sourceClaim=String(claimEl&&claimEl.value||'').trim();
+  if(!Number.isFinite(amount)||amount<=0||!paidOn||!proof){toast('Amount, payment date and proof are required');return;}
+  if(paidOn>ownerSettlementToday()){toast('Payment date cannot be in the future');return;}
+  if(settlementKind==='owner_reimbursement'){
+    var claim=claims.filter(function(c){return c.id===sourceClaim&&c.unit===rptUnit&&reportChargeBucket(c.unit,c.chargedTo)==='Owner'&&approvedReportClaim(c);})[0];
+    if(!claim){toast('Select an approved Owner-charged claim for this unit');return;}
+    var past=await sb.from('owner_settlements').select('amount').eq('source_claim_id',sourceClaim).eq('status','paid').eq('kind','owner_reimbursement');
+    if(past.error){toast(shortSupabaseErrorMessage(past.error,'Unable to check prior reimbursements'));return;}
+    var prior=(past.data||[]).reduce(function(sum,p){return sum+(Number(p.amount)||0);},0);
+    if(amount>claim.amount-prior+0.005){toast('Reimbursement exceeds the unpaid amount of this claim');return;}
+  }
+  settlementBusy=true;settlementError='';
+  try{
+    var fresh=await callEdgeFunction('owner-report',{action:'report',unit:rptUnit,period:rptYear+'-'+rptMonth});
+    if(!fresh.report)throw new Error('Owner report unavailable');
+    var expected=Number(fresh.report.summary&&fresh.report.summary.ownerProfit)||0;
+    var outstanding=expected-settlementPaid(fresh.report.settlements,'profit_distribution');
+    if(settlementKind==='profit_distribution'&&amount>outstanding+0.005&&!note)throw new Error('Amount exceeds outstanding owner profit; enter a reason');
+    var signed=await callEdgeFunction('process-invoice',{action:'create-owner-settlement-upload',fileName:proof.name});
+    var uploaded=await sb.storage.from('receipts').uploadToSignedUrl(signed.path,signed.token,proof,{contentType:proof.type||'application/octet-stream'});
+    if(uploaded.error)throw uploaded.error;
+    var payload={unit_name:rptUnit,settlement_month:rptYear+'-'+rptMonth,owner_name:fresh.report.ownerName||'',kind:settlementKind,amount:amount,paid_on:paidOn,status:'paid',payment_reference:reference,note:note,source_claim_id:settlementKind==='owner_reimbursement'?sourceClaim:null,proof_ref:signed.path,report_snapshot:{booking:fresh.report.booking,summary:fresh.report.summary,business_model:fresh.report.businessModel},created_by:currentUser.id};
+    var saved=await sb.from('owner_settlements').insert(payload);
+    if(saved.error)throw saved.error;
+    await logAdminAction('owner-settlement.paid',{unit_name:rptUnit,settlement_month:payload.settlement_month,kind:settlementKind,amount:amount});
+    toast('Owner payment recorded');
+    settlementBusy=false;
+    await loadSettlementReport();
+  }catch(e){settlementError=shortSupabaseErrorMessage(e,'Unable to save owner payment');toast(settlementError);}
+  settlementBusy=false;
+}
+async function voidOwnerSettlement(id){
+  var reason=prompt('Reason for voiding this payment record:');
+  if(!reason||!reason.trim())return;
+  var result=await sb.from('owner_settlements').update({status:'void',void_reason:reason.trim(),updated_at:new Date().toISOString()}).eq('id',id).eq('status','paid');
+  if(result.error){settlementError=shortSupabaseErrorMessage(result.error,'Unable to void payment');render();return;}
+  await logAdminAction('owner-settlement.voided',{unit_name:rptUnit,settlement_id:id});
+  await loadSettlementReport();
+}
+window.saveOwnerSettlement=saveOwnerSettlement;
+window.voidOwnerSettlement=voidOwnerSettlement;
+window.setSettlementKind=function(value){settlementKind=value;render();};
 function cacheOwnerAttachmentUrls(rows){
   (rows||[]).forEach(function(row){
     (row.attachmentUrls||[]).forEach(function(item){
@@ -2935,6 +3010,16 @@ async function exportReportPDF(){
       doc.setFontSize(9);doc.setFont(undefined,bold?'bold':'normal');doc.setTextColor(55,65,81);
       doc.text(label,x,y);right(value,rCol,y);y+=5;
     }
+    function pdfSettlement(expected){
+      if(!settlementReport||settlementReport.unit!==rptUnit||settlementReport.period!==ym)return;
+      var payments=settlementReport.settlements||[];
+      section('Owner Settlement');
+      row('Calculated owner profit',money(expected),false);
+      row('Profit distribution paid',money(settlementPaid(payments,'profit_distribution')),false);
+      row('Outstanding',money(expected-settlementPaid(payments,'profit_distribution')),true);
+      row('Owner reimbursements paid',money(settlementPaid(payments,'owner_reimbursement')),false);
+      payments.forEach(function(p){row(String(p.paid_on||'')+' '+(p.kind==='profit_distribution'?'Profit distribution':'Owner reimbursement'),money(p.amount),false);});
+    }
     function renderPdfExpenseGroups(groups,emptyText){
       if(!groups.length){doc.setFont(undefined,'normal');doc.setFontSize(7.4);doc.setTextColor(45,45,45);doc.text(emptyText,x+2,y);y+=6;return;}
       groups.forEach(function(group){
@@ -3020,6 +3105,7 @@ async function exportReportPDF(){
       doc.setDrawColor(0);doc.setLineWidth(0.5);doc.line(x,y,x+pw,y);y+=6;
       doc.setFontSize(12);doc.setFont(undefined,'bold');doc.setTextColor(0,0,0);
       doc.text('Owner Net',x,y);right(money(longTermOwnerProfit),rCol,y);y+=10;
+      pdfSettlement(longTermOwnerProfit);
       if(y>pageBottom-8){doc.addPage();y=16;}
       doc.setFontSize(8);doc.setFont(undefined,'normal');doc.setTextColor(150,150,150);
       doc.text('Generated: '+new Date().toLocaleDateString('en-MY')+' - Homestay Expense System',x,y);
@@ -3079,6 +3165,7 @@ async function exportReportPDF(){
     doc.setDrawColor(0);doc.setLineWidth(0.5);doc.line(x,y,x+pw,y);y+=6;
     doc.setFontSize(12);doc.setFont(undefined,'bold');doc.setTextColor(0,0,0);
     doc.text('Owner Profit',x,y);right(money(ownerProfit),rCol,y);y+=10;
+    pdfSettlement(ownerProfit);
 
     if(y>pageBottom-8){doc.addPage();y=16;}
     doc.setFontSize(8);doc.setFont(undefined,'normal');doc.setTextColor(150,150,150);
@@ -3176,10 +3263,12 @@ function render(){
     if(r.businessModel==='long_term_management'){
       var rentTotal=Number(summary.tenantRentReceived||booking.sales||0);
       ms.innerHTML='<div class="scr"><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;color:#6b7280">Unit</span><span style="font-size:12px;font-weight:600">'+esc(r.unit||'')+'</span></div><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;color:#6b7280">Period</span><span style="font-size:12px;font-weight:600">'+esc(r.monthLabel||'')+'</span></div><div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#6b7280">Owner</span><span style="font-size:12px;font-weight:600">'+esc(r.ownerName||'--')+'</span></div></div><div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px">Tenant Rent Received</div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Rent receipts</span><span style="font-size:12px;font-weight:600">'+((r.rentReceipts||[]).length)+'</span></div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Amount received</span><span style="font-size:12px;font-weight:700">RM '+rentTotal.toFixed(2)+'</span></div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Owner Net</span><span style="font-size:12px;font-weight:700">RM '+(Number(summary.ownerProfit)||0).toFixed(2)+'</span></div></div><div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#065f46;background:#d1fae5;padding:6px 10px;border-radius:8px;margin-bottom:6px">Rent Receipt Evidence</div>'+ownerExpenseRowsHTML(r.rentReceipts||[])+'</div><div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#1d4ed8;background:#dbeafe;padding:6px 10px;border-radius:8px;margin-bottom:6px">Owner Expenses</div>'+ownerExpenseRowsHTML(r.ownerExpenses||[])+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#1d4ed8;border-top:2px solid #dbeafe;margin-top:4px"><span>Total Owner Expenses</span><span>RM '+ownerExpenseTotal.toFixed(2)+'</span></div></div><div style="background:#111;border-radius:10px;padding:12px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:12px;font-weight:700;color:#d1fae5">MANAGEMENT FEE</span><span style="font-size:14px;font-weight:800;color:#d1fae5">RM '+(Number(summary.managementFee)||0).toFixed(2)+'</span></div><div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(255,255,255,.18);padding-top:7px"><span style="font-size:13px;font-weight:700;color:#fff">OWNER NET</span><span style="font-size:16px;font-weight:800;color:#fff">RM '+(Number(summary.ownerProfit)||0).toFixed(2)+'</span></div></div></div>';
+      ms.innerHTML=ms.innerHTML.replace(/<\/div>$/,settlementSummaryHtml(r)+'</div>');
       return;
     }
     var reservationDetails='<div style="font-size:11px;font-weight:700;color:#92400e;border-top:1px dashed #fde68a;margin-top:7px;padding-top:7px">Reservation Details</div>'+ownerReservationDetailsHTML(booking.details||[]);
     ms.innerHTML='<div class="scr"><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;color:#6b7280">Unit</span><span style="font-size:12px;font-weight:600">'+esc(r.unit||'')+'</span></div><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;color:#6b7280">Period</span><span style="font-size:12px;font-weight:600">'+esc(r.monthLabel||'')+'</span></div><div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#6b7280">Owner</span><span style="font-size:12px;font-weight:600">'+esc(r.ownerName||'—')+'</span></div></div><div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px">Bookings This Month</div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Reservations</span><span style="font-size:12px;font-weight:600">'+(booking.count||0)+'</span></div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Sales</span><span style="font-size:12px;font-weight:600">RM '+(Number(booking.sales)||0).toFixed(2)+'</span></div><div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:11px;color:#6b7280">Owner Profit</span><span style="font-size:12px;font-weight:700">RM '+(Number(summary.ownerProfit)||0).toFixed(2)+'</span></div>'+reservationDetails+'</div><div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#065f46;background:#d1fae5;padding:6px 10px;border-radius:8px;margin-bottom:6px">Expenses</div>'+ownerExpenseRowsHTML(r.expenses||[])+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#065f46;border-top:2px solid #d1fae5;margin-top:4px"><span>Subtotal Expenses</span><span>RM '+expenseTotal.toFixed(2)+'</span></div></div><div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#1d4ed8;background:#dbeafe;padding:6px 10px;border-radius:8px;margin-bottom:6px">Owner Expenses</div>'+ownerExpenseRowsHTML(r.ownerExpenses||[])+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700;color:#1d4ed8;border-top:2px solid #dbeafe;margin-top:4px"><span>Total Owner Expenses</span><span>RM '+ownerExpenseTotal.toFixed(2)+'</span></div></div></div>';
+    ms.innerHTML=ms.innerHTML.replace(/<\/div>$/,settlementSummaryHtml(r)+'</div>');
   }
   else if(S==='empHome'){
     tbt_el.textContent='My Dashboard';empNav('home');
@@ -3605,7 +3694,18 @@ function render(){
     var rYearOpts=YEARS.map(function(y){return'<option value="'+y+'"'+(rptYear===y?' selected':'')+'>'+y+'</option>';}).join('');
     var insightsTile='<div style="margin-top:10px;background:#ecfdf5;border:1px solid #86efac;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="openCompanyInsights()"><div><div style="font-size:12px;font-weight:700;color:#065f46">公司月度洞察 Company Monthly Insights</div><div style="font-size:10px;color:#6b7280">预览公司月收入、驱动因素、单位表现和提醒 Preview monthly company revenue, drivers, unit ranking, and alerts</div></div><span style="font-size:16px;color:#065f46">></span></div>';
     var unitExpenseTile='<div style="margin-top:10px;background:#eff6ff;border:1px solid #93c5fd;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="ss(\'unitExpenses\',\'reportHome\')"><div><div style="font-size:12px;font-weight:700;color:#1d4ed8">Unit Expenses</div><div style="font-size:10px;color:#6b7280">Review every non-draft expense by unit</div></div><span style="font-size:16px;color:#1d4ed8">›</span></div>';
+    var settlementTile='<div style="margin-top:10px;background:#eff6ff;border:1px solid #93c5fd;border-radius:10px;padding:10px 12px;cursor:pointer" onclick="ss(\'ownerSettlements\',\'reportHome\')"><div style="font-size:12px;font-weight:700;color:#1d4ed8">Owner Settlements 业主结算</div><div style="font-size:10px;color:#6b7280">Record profit distributions and owner reimbursements with payment proof</div></div>';
     ms.innerHTML='<div class="scr"><div style="font-size:15px;font-weight:700;color:#111;margin-bottom:2px">Generate Report</div><div style="font-size:11px;color:#6b7280;margin-bottom:12px">Select unit and period</div><div class="fg"><label class="fl">Unit *</label><select class="fi" id="rpt-unit" onchange="rptUnit=this.value"><option value="">— Select unit —</option>'+rUnitOpts+'</select></div><div class="tcol"><div class="fg"><label class="fl">Month</label><select class="fi" id="rpt-month" onchange="rptMonth=this.value">'+rMonthOpts+'</select></div><div class="fg"><label class="fl">Year</label><select class="fi" id="rpt-year" onchange="rptYear=this.value">'+rYearOpts+'</select></div></div><button class="pbtn btn-p" onclick="openReportView()">View Report</button>'+insightsTile+unitExpenseTile+'<div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:14px"><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:8px">Settings</div><div style="display:flex;flex-direction:column;gap:6px"><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="ss(\'unitConfigList\',\'reportHome\')"><div><div style="font-size:12px;font-weight:600;color:#111">Unit Configuration</div><div style="font-size:10px;color:#6b7280">Owner, rates, profit sharing</div></div><span style="font-size:16px;color:#6b7280">›</span></div><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="openSyncScreen()"><div><div style="font-size:12px;font-weight:600;color:#111">Reservation Sync</div><div style="font-size:10px;color:#6b7280">Auto-import booking data</div></div><span style="font-size:16px;color:#6b7280">›</span></div></div></div></div>';
+  }
+  else if(S==='ownerSettlements'){
+    tbt_el.textContent='Owner Settlements';bb_el.style.display='block';adminNav('report');
+    var period=rptYear&&rptMonth?rptYear+'-'+rptMonth:'';
+    var unitOptions=UNITS.filter(function(u){return u&&u!=='MP Office';}).map(function(u){return '<option value="'+esc(u)+'"'+(rptUnit===u?' selected':'')+'>'+esc(u)+'</option>';}).join('');
+    var report=settlementReport&&settlementReport.unit===rptUnit&&settlementReport.period===period?settlementReport:null;
+    var outstanding=report?(Number(report.summary&&report.summary.ownerProfit)||0)-settlementPaid(report.settlements,'profit_distribution'):0;
+    var eligible=claims.filter(function(c){return c.unit===rptUnit&&approvedReportClaim(c)&&reportChargeBucket(c.unit,c.chargedTo)==='Owner';});
+    var claimOptions=eligible.map(function(c){return '<option value="'+esc(c.id)+'">'+esc(c.id)+' · '+esc(c.desc)+' · RM '+c.amount.toFixed(2)+'</option>';}).join('');
+    ms.innerHTML='<div class="scr"><div class="fg"><label class="fl">Unit</label><select class="fi" id="os-unit"><option value="">Select unit</option>'+unitOptions+'</select></div><div class="fg"><label class="fl">Settlement month</label><input class="fi" id="os-month" type="month" value="'+esc(period||new Date().toISOString().slice(0,7))+'"/></div><button class="pbtn btn-p" onclick="openOwnerSettlements()"'+(settlementLoading?' disabled':'')+'>'+(settlementLoading?'Loading...':'Load settlement')+'</button>'+(settlementError?'<div class="info-box" style="background:#fee2e2;color:#991b1b">'+esc(settlementError)+'</div>':'')+(report?settlementSummaryHtml(report)+'<div class="fg"><label class="fl">Payment type</label><select class="fi" onchange="setSettlementKind(this.value)"><option value="profit_distribution"'+(settlementKind==='profit_distribution'?' selected':'')+'>Profit distribution</option><option value="owner_reimbursement"'+(settlementKind==='owner_reimbursement'?' selected':'')+'>Owner reimbursement</option></select></div>'+(settlementKind==='owner_reimbursement'?'<div class="fg"><label class="fl">Owner expense claim *</label><select class="fi" id="os-claim"><option value="">Select claim</option>'+claimOptions+'</select></div>':'')+'<div class="tcol"><div class="fg"><label class="fl">Paid amount (RM)</label><input class="fi" id="os-amount" type="number" min="0.01" step="0.01" value="'+(settlementKind==='profit_distribution'&&outstanding>0?outstanding.toFixed(2):'')+'"/></div><div class="fg"><label class="fl">Payment date</label><input class="fi" id="os-date" type="date" value="'+new Date().toISOString().slice(0,10)+'"/></div></div><div class="fg"><label class="fl">Bank reference</label><input class="fi" id="os-reference"/></div><div class="fg"><label class="fl">Reason / note</label><input class="fi" id="os-note"/></div><div class="fg"><label class="fl">Bank transfer proof *</label><input class="fi" id="os-proof" type="file" accept="image/*,.pdf"/></div><button class="pbtn btn-s" onclick="saveOwnerSettlement()"'+(settlementBusy?' disabled':'')+'>'+(settlementBusy?'Saving...':'Record paid amount')+'</button>'+(report.settlements||[]).map(function(p){return '<div style="font-size:11px;margin-top:6px">'+esc(p.paid_on)+' · '+esc(p.kind)+' · RM '+(Number(p.amount)||0).toFixed(2)+' <button onclick="voidOwnerSettlement(\''+esc(p.id)+'\')">Void</button></div>';}).join(''):'')+'</div>';
   }
   else if(S==='companyInsights'){
     if(isSystemAdmin||R!=='admin'){toast('Only manager can access dashboard');ss(isSystemAdmin?'adminUsers':'empHome',isSystemAdmin?'adminUsers':'empHome');return;}
@@ -3660,6 +3760,7 @@ function render(){
       rhtml+='<div style="background:#111;border-radius:10px;padding:12px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:12px;font-weight:700;color:#d1fae5">MANAGEMENT FEE ('+longTermProfitPct.toFixed(2)+'%)</span><span style="font-size:14px;font-weight:800;color:#d1fae5">RM '+longTermManagementFee.toFixed(2)+'</span></div><div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(255,255,255,.18);padding-top:7px"><span style="font-size:13px;font-weight:700;color:#fff">OWNER NET</span><span style="font-size:16px;font-weight:800;color:#fff">RM '+longTermOwnerNet.toFixed(2)+'</span></div></div>';
       rhtml+='<button class="pbtn btn-s" onclick="exportReportPDF()">⬇ Export PDF</button></div>';
       ms.innerHTML=rhtml;
+      if(settlementReport&&settlementReport.unit===rptUnit&&settlementReport.period===ym)ms.innerHTML+=settlementSummaryHtml(settlementReport);
       return;
     }
     // Booking summary from reservations
@@ -3703,6 +3804,7 @@ function render(){
     rhtml+='<div style="background:#111;border-radius:10px;padding:12px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:12px;font-weight:700;color:#d1fae5">HOMESTAY MANAGEMENT FEE</span><span style="font-size:14px;font-weight:800;color:#d1fae5">RM '+managementFee.toFixed(2)+'</span></div><div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(255,255,255,.18);padding-top:7px"><span style="font-size:13px;font-weight:700;color:#fff">OWNER PROFIT</span><span style="font-size:16px;font-weight:800;color:#fff">RM '+ownerProfit.toFixed(2)+'</span></div></div>';
     rhtml+='<button class="pbtn btn-s" onclick="exportReportPDF()">⬇ Export PDF</button></div>';
     ms.innerHTML=rhtml;
+    if(settlementReport&&settlementReport.unit===rptUnit&&settlementReport.period===ym)ms.innerHTML+=settlementSummaryHtml(settlementReport);
   }
   else if(S==='extraCleaningForm'){
     tbt_el.textContent='Add Extra Cleaning';bb_el.style.display='block';adminNav('report');
@@ -3758,6 +3860,7 @@ function render(){
     var logRows=syncLogs.map(function(l){var ts=new Date(l.started_at);var tStr=ts.toLocaleDateString('en-MY',{day:'2-digit',month:'short'})+' '+ts.toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit',hour12:false});var sc=l.status==='success'?'#065f46':l.status==='error'?'#991b1b':'#92400e';return'<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:11px"><span>'+tStr+'</span><span style="color:'+sc+'">'+l.status+'</span><span>'+l.records_upserted+' rec</span><span style="font-size:10px;color:#6b7280">'+l.sync_type+'</span></div>';}).join('');
     ms.innerHTML='<div class="scr"><div style="display:flex;gap:6px;margin-bottom:10px"><div style="flex:1;background:#dbeafe;border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:#1d4ed8">'+totalRes+'</div><div style="font-size:10px;color:#1d4ed8">Total</div></div><div style="flex:1;background:#d1fae5;border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:#065f46">'+activeRes+'</div><div style="font-size:10px;color:#065f46">Active</div></div><div style="flex:1;background:'+statusBg+';border-radius:8px;padding:8px;text-align:center"><div style="font-size:11px;font-weight:600;color:'+statusColor+'">'+lastStatus+'</div><div style="font-size:9px;color:'+statusColor+'">'+lastTime+'</div></div></div>'+(lastErr?'<div style="background:#fee2e2;color:#991b1b;font-size:11px;padding:8px;border-radius:8px;margin-bottom:8px">'+lastErr+'</div>':'')+'<div style="display:flex;gap:6px;margin-bottom:10px"><button class="pbtn btn-p" style="flex:1" onclick="triggerSync()"'+(syncRunning?' disabled':'')+'>'+(syncRunning?'⏳ Syncing...':'🔄 Sync Now')+'</button><button class="pbtn btn-o" style="flex:1" onclick="refreshSyncScreen()">↻ Refresh</button></div><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Recent Sync History</div>'+logRows+'</div>';
   }
+  if(S==='reportHome')ms.innerHTML=ms.innerHTML.replace(/<\/div>$/,settlementTile+'</div>');
 }
 
 // ===== GLOBAL HANDLERS =====
@@ -3787,11 +3890,22 @@ window.deleteMgrClaim=async function(id){
   else{await logClaimDeleteFailure(c,res,'manager');toast(res.userMessage||'Failed to delete claim');}
 };
 window.openBankEdit=function(emp){editingBankEmp=emp;ss('bankEdit','adminEmployees');};
-window.openReportView=function(){
+window.openReportView=async function(){
   var u=document.getElementById('rpt-unit'),m=document.getElementById('rpt-month'),yr=document.getElementById('rpt-year');
   if(u)rptUnit=u.value;if(m)rptMonth=m.value;if(yr)rptYear=yr.value;
   if(!rptUnit){toast('Please select a unit');return;}
+  try{
+    var result=await callEdgeFunction('owner-report',{action:'report',unit:rptUnit,period:rptYear+'-'+rptMonth});
+    settlementReport=result.report||null;
+  }catch(e){settlementReport=null;settlementError=e&&e.message?e.message:'Owner settlement unavailable';}
   ss('reportView','reportHome');
+};
+window.openOwnerSettlements=async function(){
+  var u=document.getElementById('os-unit'),m=document.getElementById('os-month');
+  var unit=u?u.value:'',period=m?m.value:'';
+  if(!unit||!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)){settlementError='Select a unit and valid month';render();return;}
+  rptUnit=unit;rptYear=period.slice(0,4);rptMonth=period.slice(5,7);
+  await loadSettlementReport();
 };
 window.openExtraCleaningFormByCode=function(encoded){
   var code='';

@@ -127,7 +127,7 @@ function unitAliases(unit: string, unitRows: Array<Record<string, unknown>>) {
   return unique(out);
 }
 
-async function authOwner(req: Request) {
+async function authReportUser(req: Request) {
   const authHeader = req.headers.get("Authorization") || "";
   const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY || SUPABASE_SERVICE_KEY, {
     global: { headers: { Authorization: authHeader } },
@@ -142,7 +142,7 @@ async function authOwner(req: Request) {
     .eq("id", userData.user.id)
     .single();
   if (error || !profile || profile.active === false) throw new Error("Profile not active");
-  if (profile.role !== "owner") throw new Error("Only owner accounts can use this report");
+  if (!["owner", "manager", "admin"].includes(profile.role)) throw new Error("Report access denied");
   return { admin, ownerId: userData.user.id, profile };
 }
 
@@ -162,10 +162,10 @@ serve(async (req: Request) => {
 
   try {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return json({ error: "Supabase env not configured" }, 500);
-    const { admin, ownerId } = await authOwner(req);
+    const { admin, ownerId, profile } = await authReportUser(req);
     const body = await req.json();
     const action = String(body.action || "init");
-    const units = await ownerUnits(admin, ownerId);
+    const units = profile.role === "owner" ? await ownerUnits(admin, ownerId) : [];
 
     if (action === "init") return json({ ok: true, units });
 
@@ -173,8 +173,21 @@ serve(async (req: Request) => {
 
     const unit = String(body.unit || "").trim();
     const period = String(body.period || "").trim();
-    if (!unit || !units.includes(unit)) return json({ error: "Unit is not available for this owner" }, 403);
+    if (!unit || (profile.role === "owner" && !units.includes(unit))) return json({ error: "Unit is not available for this owner" }, 403);
     if (!/^\d{4}-\d{2}$/.test(period)) return json({ error: "Period must be YYYY-MM" }, 400);
+
+    const { data: paymentRows, error: paymentError } = await admin
+      .from("owner_settlements")
+      .select("id, kind, amount, paid_on, status, payment_reference, note, source_claim_id, proof_ref")
+      .eq("unit_name", unit)
+      .eq("settlement_month", period)
+      .eq("status", "paid")
+      .order("paid_on");
+    if (paymentError) throw paymentError;
+    const settlements = await Promise.all((paymentRows || []).map(async (row) => ({
+      ...row,
+      proofUrls: await signedReceiptUrls(admin, splitAttachmentRefs(row.proof_ref)),
+    })));
 
     const { data: cfgRows } = await admin
       .from("unit_config")
@@ -221,6 +234,7 @@ serve(async (req: Request) => {
           monthLabel: monthLabel(period),
           ownerName: String(cfg.owner_name || ""),
           businessModel,
+          settlements,
           rentReceipts: await Promise.all(rentReceipts.map((row) => ownerClaimRow(admin, row))),
           booking: {
             count: 0,
@@ -300,6 +314,7 @@ serve(async (req: Request) => {
         monthLabel: monthLabel(period),
         ownerName: String(cfg.owner_name || ""),
         businessModel,
+        settlements,
         rentReceipts: [],
         booking: {
           count: activeReservations.length,
