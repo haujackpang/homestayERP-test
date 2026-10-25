@@ -3700,7 +3700,9 @@ function render(){
   else if(S==='ownerSettlements'){
     tbt_el.textContent='Owner Settlements';bb_el.style.display='block';adminNav('report');
     var period=rptYear&&rptMonth?rptYear+'-'+rptMonth:'';
-    var unitOptions=UNITS.filter(function(u){return u&&u!=='MP Office';}).map(function(u){return '<option value="'+esc(u)+'"'+(rptUnit===u?' selected':'')+'>'+esc(u)+'</option>';}).join('');
+    var settlementUnits=uniqueNames(internalUnitRows().map(function(u){return u.value;})).filter(function(u){return u&&u!=='MP Office';});
+    if(settlementUnits.indexOf(rptUnit)<0){rptUnit='';settlementReport=null;}
+    var unitOptions=settlementUnits.map(function(u){return '<option value="'+esc(u)+'"'+(rptUnit===u?' selected':'')+'>'+esc(u)+'</option>';}).join('');
     var report=settlementReport&&settlementReport.unit===rptUnit&&settlementReport.period===period?settlementReport:null;
     var outstanding=report?(Number(report.summary&&report.summary.ownerProfit)||0)-settlementPaid(report.settlements,'profit_distribution'):0;
     var eligible=claims.filter(function(c){return c.unit===rptUnit&&approvedReportClaim(c)&&reportChargeBucket(c.unit,c.chargedTo)==='Owner';});

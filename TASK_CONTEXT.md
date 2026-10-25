@@ -1,6 +1,8 @@
 # Task Context
 
 ## Current Task
+2026-10-25: Owner Settlements lists active internal units only. Active HostPlatform rows cannot reintroduce deactivated internal units, and an unavailable previous selection is cleared. Syntax and focused filtering checks passed; user approved publishing this frontend-only fix to TEST and LIVE. No database or Edge Function changes are required.
+
 2026-09-29 TEST implementation:
 1. Add `owner_settlements` for actual profit distribution and owner reimbursement payments with private proof, report snapshot, void audit, and manager-only write access.
 2. Extend `owner-report` to show payment history and outstanding owner profit; managers can fetch a unit report for settlement entry, owners remain limited to assigned units.
